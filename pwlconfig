@@ -7,9 +7,6 @@
 #    embedded targets. Use from command line or interactively.
 #
 # Options:
-#  -B, --boot         run lilo on project device for standalone booting
-#  -D, --dual-boot    run lilo on this drive to boot to project device
-#  -E, --erase        erase and format project device
 #  -e, --extract [source_dir]
 #                     extract files to source dir from project configuration
 #  -l, --load [source_dir [ device_mount_point ]]
@@ -63,29 +60,9 @@
 #      .xxx.list    - configuration in progress file
 #
 # History
-#    -v0.90 - Added Dual boot capability, fixed erase, use pwl usage, use
-#             project defaults where applicatable
-#    -v0.86 - maintain hidden .extract.log and .lilo.res files for debugging
-#             include device mount point (from project defaults) on Erase
-#    -v0.85 - fixed command line extraction process
-#    -v0.84 - more extraction of code
-#    -v0.82 - move Update to main menu, cleanup cleanups, proper lilo options
-#           - re-added feature to check custom source files by date
-#    -v0.8  - massive changes using multiple smaller scripts
-#    -v0.7a - speed ups and updating fixed, rm option for debug
-#    -v0.7b - use mkBootDevice script
-#    -v0.7c - split out defaults, custom and project functions into
-#             little scripts
-#    -v0.7d - added smart save, fix Update cmd for tar files
+# =======
 #
-#    v0.7 - bug fixes, added Update project function, split with pwl_custom
-#    v0.6 - bug fix to support 'nearly' matching filenames, added debug utilities
-#           re-worked command line parameters and added usage statement
-#    v0.5 - package selection from subdirectories; cleanup function names
-#    v0.4 - more major bug fixes, added file sizes to help figure system size
-#    v0.3 - major bug fixes, require root login to extract devices and DOC erase
-#    v0.2 - Added multiple configurations, custom files handling
-#    v0.1 - released not tested
+# see scripts/CHANGES.pwlconfig
 #
 #=============================================================================
 #
@@ -101,8 +78,6 @@ export usrMode="I"
 # include utility functions
 #
 . ./scripts/pwl_functions
-#
-PWL_VER=${PWL_REL_VER}".1"
 #
 #=============================================================================
 #=============================================================================
@@ -151,20 +126,32 @@ function build_main()
 {
    $decho "start build_main"
    if [ "$deviceName" = "" ] ; then
-      echo Internal error - set device
-      exit 0
+       #
+       # defective configuration prompt to fix
+       #
+       show_confirm "Internal error - set device" \
+           "No device has been set for this project. Probably because of a corrupted or non existant configuration file. Reset the configuration for $CFG_BASE?" "9"
+       if [ $? = "1" ] || [ $? = "255" ]; then
+           $decho "Nothing was done. User cancelled..."
+           exit 0
+       fi
+       $PRJ_DEFAULTS --reset FLASH
+       if [ "$?" = "1" ] ; then
+           cleanup 1
+       fi
+       default_define   # now load default variables
+       $decho "Reset configuration..."
    fi
 
    echo -n "'PkgConfig' 'Configure Project File System -->'             \
-            'Update'    'Update \"$CFG_BASE\" from File System --> '    \
+            'Update'    'Create or Update \"$CFG_BASE\" from File System --> ' \
             'Extract'   'Extract File System for Project'               \
             'skip'      '----'                                          \
-            'Erase'     'Erase $deviceName at $deviceLoc$devicePartition' \
-            'Load'      'Load File System onto $deviceName'             \
-            'Dual'      'Allow this system to dual-boot $deviceName'    \
-            'Lilo'      'Install LInux LOader (LILO) to $deviceName'    \
+            'Target'    'Configure Target Hardware -->'        \
+            'Load'      'Load File System onto Target $deviceName'      \
             'skip'      '----'                                          \
             'PrjManage' 'Manage Projects -->'                           \
+            'PkgManage' 'Manage Package Files -->'                      \
             'Save'      'Save Project'                                 "> $1
    #
    $decho "end build_main"
@@ -232,7 +219,7 @@ function extract_packages()
        tar_file=`basename $nfile_lst .list`".tar"
        #
        if [ ! -f "$pkgDir"/"$tar_file" ] ; then
-          echo $CFG_FILE Error: $pkgDir\$tar_file not found \(line "$ln"\)
+          echo "$CFG_FILE Error: $pkgDir/$tar_file not found (line $ln)"
 
        elif [ ! -f "$PWL_PRJ"/"$lst_file" ] ; then  # internal error ??
              echo Configuration list file $PWL_PRJ/$lst_file not found
@@ -304,18 +291,11 @@ function extract_project()
       mntName="$1"
 
    else
-      get_string "Build File System for project $CFG_BASE" \
+      get_string "Extract File System for project: $CFG_BASE" \
                  "Enter path and name of mount point:" \
                  "mntName" "$PWL_PRJ"/"$prjMnt"
       if [ $? != "0" -o "$mntName" = "" ] ; then
          return
-      fi
-   fi
-   #
-   if [ -d "$mntName" ] ; then
-      show_confirm "Mount Point Exists" "Remove File System created at: $mntName ?"
-      if [ $? != "0" ] ; then
-         return             # let user specify another mount point
       fi
    fi
    #
@@ -342,146 +322,6 @@ function extract_project()
    $decho "end extract_project"
 }
 
-#=============================================================================
-#
-# device_erase - erase device mounted (or re-mount) the device
-#
-function device_erase()
-{
-   $decho "start device_erase"
-   #
-   # get user defined mount point ??
-   #
-   get_string "Erase Device Contents" \
-              "Enter path and name of device mount point:"\
-              "destMntName" "$deviceMnt"
-   if [ $? != "0" ] ; then
-      return
-   fi
-   if [ ! -d "$destMntName" ] ; then
-      show_message "Mount point not found" \
-         "Mount point: $destMntName was not found"
-      return
-   fi
-   #
-   # confirm erase
-   #
-   show_confirm "Confirm Erase Device" \
-     "Are you sure you want to erase $deviceType device at $deviceLoc$devicePartition ?"
-   if [ $? = "0" ] ; then
-      #
-      # Erase it - note: if device is not mountable as is, we have to
-      #            erase it first before we mount it (-e then -m).
-      #
-      $DEV_MGR $deviceType --device $deviceLoc --dev-id $devicePartition --mount $destMntName -e -m |tee .erase.log
-      #
-      # tell them what happened
-      #
-      show_results .erase.log "Erase Device Results"
-      #
-      $RM .erase.log
-   fi
-   #
-   $decho "end device_erase"
-}
-
-#
-# device_dual_boot()
-#     Copies existing /etc/lilo.conf file and appends section to install
-#     the project device as a bootable option at power up.
-#
-function device_dual_boot()
-{
-   $decho "start device_dual_boot"
-   #
-   # get system boot device
-   #
-   sysBootDevice=`mount | head -1`
-   sysBootDevice=${sysBootDevice%%[0-9]*}
-   #
-   show_confirm "Update LILO on this machine" \
-"Boot device for this machine is: $sysBootDevice.  You are 
-about to Modify the Master Boot Record for this device. 
-Make sure you have a boot disk available!" 10
-   if [ $? != "0" ] ; then
-      return
-   fi
-   if [ "$destMntName" = "" ] ; then
-      destMntName="$deviceMnt"
-   fi
-   #
-   get_string "Allow LILO to access Device" \
-              "Enter path and name of device mount point:"\
-              "destMntName" $destMntName
-   if [ $? != "0" ] ; then
-      return
-   fi
-   if [ ! -d "$destMntName" ] ; then
-      show_message "Mount point not found" \
-         "Mount point: $destMntName was not found"
-      return
-   fi
-   #
-   # Lilo it - note root device is the same as the device location when
-   #           we dual boot - ignore bootDevice
-   #
-   $DEV_MGR  $deviceType --mbr-device $sysBootDevice --mount $destMntName \
-             --label $bootLabel --kernel $bootKernel --dev-id $devicePartition \
-             --device $deviceLoc --root-dev ${deviceLoc}${devicePartition} \
-             -m --dual-boot 2>&1 |tee .dlilo.log
-   #
-   show_results .dlilo.log "LILO on $deviceName"
-   #
-   $RM .dlilo.log
-   $decho "end device_dual_boot"
-}
-
-#
-# device_lilo()
-#        Builds a lilo.conf.DEVICE file to install the Linux Loader onto
-#        the device and all it to boot as a master boot device.
-#
-function device_lilo()
-{
-   $decho "start device_lilo"
-   #
-   # get user defined mount point
-   #
-   if [ "$destMntName" = "" ] ; then
-     destMntName="$deviceMnt"
-   fi
-   # 
-   get_string "Install LILO on Device" \
-              "Enter path and name of device mount point:"\
-              "destMntName" $destMntName
-   if [ $? != "0" ] ; then
-      return
-   fi
-   if [ ! -d "$destMntName" ] ; then
-      show_message "Mount point not found" \
-         "Mount point: $destMntName was not found"
-      return
-   fi
-   #
-   # Tell user about our defaults
-   #
-   show_message "Note on Lilo Configuration" \
-"Configuration parameters for LILO operation are stored in \
- \"lilo.conf.$deviceType\". Please verify these before attempting to boot this device!"
-   #
-   # Lilo it
-   #
-   $DEV_MGR  $deviceType --mount $destMntName \
-             --label $bootLabel --kernel $bootKernel \
-             --dev-id $devicePartition --mbr-device $bootDevice \
-             --device $deviceLoc --root-dev $bootDevice  -mb 2>&1 |tee .lilo.log
-   #
-   show_results .lilo.log "LILO on $deviceName"
-   #
-   $RM .lilo.log
-   $decho "end device_lilo"
-}
-
 #
 # device_load_fs( [ sourceMnt, deviceMntName ])
 #    Load file system created for this project onto the current device
@@ -491,59 +331,69 @@ function device_load_fs ()
 {
    $decho "start device_load_fs"
    #
-   # Get location of existing file system (show default)
+   # make sure we have a current default parameters
    #
-   if [ "$1" != "" ] ; then
-      srcMntName="$1"
-   else
-      get_string "Load File System: Source" \
-                 "Enter path and name of file system :" \
-                 "srcMntName" "$PWL_PRJ"/"$prjMnt"
-      if [ $? != "0" ] ; then
-         return
-      fi
+   # 1. case config file pre 0.53
+   #
+   if [ -z "$pwl_version" ]; then
+       $decho "incompatible defaults file..."
+       # show dialog box
+       show_confirm "Configuration File Incompatibility" \
+           "The configuration file is pre 0.53 and incompatible with PeeWeeLinux $PWL_VER. Reset the configuration for $CFG_BASE?" "9"
+       if [ $? = "1" ] || [ $? = "255" ]; then
+           $decho "Nothing was done. User cancelled..."
+       else
+           $PRJ_DEFAULTS --reset FLASH
+           if [ "$?" = "1" ] ; then
+               cleanup 1
+           fi
+           default_define   # now load default variables
+           show_message "Configuration Reset" \
+               "The configuration for $CFG_BASE has been reset. Please check settings"
+           $decho "Reset configuration..."
+       fi
+       return 1
    fi
-   if [ -z "$srcMntName" ] || [ ! -d "$srcMntName" ] ; then
-      show_message "Existing File System Not Found" \
-             "Could Not find $srcMntName. Make sure you have selected 'Extract File System for Project' first"
+   #
+   # ask for confirmation before building system
+   #
+   show_confirm "Load File System onto Target $deviceName" \
+          "You are about to install the extracted filesystem onto $deviceName. All existing content on $deviceName will be destroyed. Are you sure you wish to proceed?" "9"
+   if [ $? = "1" ] || [ $? = "255" ]; then
+      $decho "Nothing was done. User cancelled..."
       return
    fi
    #
-   # get user defined mount point
+   # execute commands to load the file system to the device
    #
-   if [ "$1" != "" -a "$2" != "" ] ; then
-      $decho "using destination parameter $2"
-      destMntName="$2"
+   . ./$PWL_TARGET >.load.log 
+   #
+   # show dialog with success or fail
+   #
+   if [ "$rd_fail" = "fail" ]; then
+       #
+       # load failed
+       #
+       show_confirm "Load File System onto Target $deviceName failed" \
+           "The target build script failed to load the filesystem onto the configured target. Do you wish to view the results?"
    else
-      if [ "$destMntName" = "" ] ; then
-         destMntName="$deviceMnt"
-      fi
-      get_string "Load File System: Destination" \
-                 "Enter path and name of device mount point:"\
-                 "destMntName" $destMntName
-      if [ $? != "0" ] ; then
-         return
-      fi
+       #
+       # load success
+       #
+       show_confirm "Load File System onto Target $deviceName succeeded" \
+           "The target build script succeeded in loading the configured target device. Do you wish to view the results?"
    fi
    #
-   if [ -z "$destMntName" ] ; then
-      return
+   # show results if selected
+   #
+   if [ $? = "1" ] || [ $? = "255" ]; then
+       #
+       $decho "Skip results..." 
+   else
+       #
+       show_results .load.log "Load $deviceName Results"
+       $decho "Show results..." 
    fi
-   #
-   # execute command to load the file system
-   #
-   $DEV_MGR  $deviceType --source $srcMntName --mount $destMntName \
-             --label $bootLabel --kernel $bootKernel --dev-id $devicePartition \
-             --device $deviceLoc --root-dev $bootDevice  -mc |tee .load.log
-   #
-   # Note: tee in above command kills status
-   #
-   echo "" >> .load.log
-   echo " Total Size of new file system: `du $destMntName -bsh` " >> .load.log
-   #
-   # view results
-   #
-   show_results .load.log "Load File System - Results"
    #
    $RM  .load.log
    $decho "end device_fs_load"
@@ -559,10 +409,10 @@ function menu_main()
    $decho "start menu_main"
    #
    mainDone=0
-   build_main .main.lst
    #
    while [ "$mainDone" = "0" ]; do
 
+      build_main .main.lst                # rebuild everytime - its cheap
       show_main .main.lst 2> .result
 
       retVal=$?
@@ -588,20 +438,18 @@ function menu_main()
                                      # files at mount point
                      $PWL_UPDATE
              ;;
-             "Erase")
-                     device_erase
+             "Target")
+                     $PRJ_DEFAULTS
+                     default_define   # reload if any defaults changed
              ;;
              "Load")
                      device_load_fs
              ;;
-             "Lilo")
-                     device_lilo
-             ;;
-             "Dual")
-                     device_dual_boot
-             ;;
              "Save")
                      confirm_save
+             ;;
+             "PkgManage")
+                   $PWL_PKGMGR
              ;;
              "PrjManage")
                      confirm_save
@@ -611,7 +459,6 @@ function menu_main()
                      else                   # reset defaults
                         pwl_init_project
                         default_define
-                        build_main .main.lst
                      fi
              ;;
         esac
@@ -645,6 +492,7 @@ function cleanup()
 function main_init()
 {
    $decho "start main_init"
+   echo -n "."
    #
    export backtitle="Pee Wee Linux System Configuration - Version $PWL_VER"
    progInfo=$backtitle
@@ -656,6 +504,7 @@ function main_init()
       cleanup  #not root user
    fi
    #
+   echo -n "."
    export CFG_BASE=none
    $PWL_PROJECTS --init
    status=$?
@@ -666,6 +515,7 @@ function main_init()
    #
    # set global project variables
    #
+   echo -n "."
    pwl_init_project
    default_define
    if [ "$?" = "1" ] ; then # no default files found, prompt & create
@@ -675,10 +525,21 @@ function main_init()
       fi
       default_define   # now load default variables
    fi
+   # 
+   # verify package files are up to date with source files
+   #
+   echo -n "."
+   $PWL_PKGMGR --update
    #
    # verify custom files are up to date with source files
    #
+   echo -n "."
    $PWL_CUSTOM --update
+   #
+   # create master index of all packages
+   #
+   echo -n "."
+   $PWL_LISTER --index -c $PKG_INDEX
    #
    $decho "end main_init"
 }
@@ -701,29 +562,15 @@ function cmd_parse_commands ()
       cmd=$1
       shift
       case "$cmd" in
-      "B"|"--boot")                # run lilo on project device
-          main_init
-          usrMode="C"
-          #
-          device_lilo
-          exit 0
-          ;;
-      "D"|"--dual-boot")           # run lilo on this drive for dual boot
-          main_init
-          usrMode="C"
-          #
-          device_dual_boot
-          exit 0
-          ;;
-      "E"|"--erase")                # erase project device
-          main_init
-          usrMode="C"
-          #
-          device_erase
-          exit 0
-          ;;
-
-      "-e"|"--extract")            # extract project files (allow copy parm)
+      "--clean")               # erase all temp package stuff non-menu command
+         $PWL_CLEAN
+         ;;
+      "--clean-factory")
+         $PWL_CLEAN --factory
+         ;;
+      "--update")              #
+         ;;
+      "--extract")            # extract project files (allow copy parm)
           main_init
           usrMode="C"
           #
@@ -736,7 +583,7 @@ function cmd_parse_commands ()
           #
           exit 0
           ;;
-      "-l"|"--load")               # copy files from project to mount point
+      "--load")               # copy files from project to mount point
           main_init
           usrMode="C"
           #
@@ -754,7 +601,7 @@ function cmd_parse_commands ()
           exit 0                   # no more parameters allowed
           ;;
 
-      "-d")                        # undocumented feature!;-)
+      "-debug")                        # undocumented feature!;-)
           if [ $debugMode = "0" ] ; then
              debug_mode  1
           else
@@ -762,18 +609,18 @@ function cmd_parse_commands ()
           fi
           ;;
 
-      "-n"|"--new")                # not a menu item, but makes sense to add here ?
+      "--new")                # not a menu item, but makes sense to add here ?
           usrMode="C"
           $PWL_PROJECTS --init $2
           exit 0
           ;;
 
-      "-h"|"--help")
+      "--help")
           usage
           exit 0
           ;;
 
-      "-v"|"--version")
+      "--version")
           echo "`basename $0` (Pee Wee Linux Configuration utility) Version $PWL_VER"
           exit 0
           ;;

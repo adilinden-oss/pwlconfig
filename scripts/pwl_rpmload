@@ -10,8 +10,6 @@
 #  Note: If the rpm package file is not found
 #           it is copied from the Red Hat disk (disk #1 or disk #2)
 ###
-# History
-#    V0.1 Created
 #
 #=============================================================================
 VER_PWL_RPMLOADER=0.1
@@ -34,6 +32,8 @@ PKG_DEP_LIST=dep.list
 #
 #decho=echo
 decho=:
+RPM=./bin/rpm   # make sure we use v3.0.3 for now
+#
 #========================================================================
 #
 # usage
@@ -82,11 +82,11 @@ function rpm_install()
    #
    # extract the rpm
    #
-   rpm -Uvh $1
+   $RPM -Uvh $1
    #
    # verify this worked
    #
-   rpm -q $2 > .result 2>&1
+   $RPM -q $2 > .result 2>&1
    if grep -q "not installed" .result ; then 
       usage Error installing rpm $1
    fi
@@ -221,7 +221,7 @@ function rpm_get_src_files()
    # copy all source files to our directory
    #
    if [ ! -f $1 ] ; then
-      rpm -q -l $2 > $1
+      $RPM -q -l $2 > $1
    fi
 }
 
@@ -237,13 +237,13 @@ function rpm_get_pkg_files()
       #
       # build a list of all files, no manuals and no docs
       #
-      rpm -q -l $3 | grep -v "\/man\/" | grep -v "\/doc\/" | grep -v "\/info\/" > $1
+      $RPM -q -l $3 | grep -v "\/man\/" | grep -v "\/doc\/" | grep -v "\/info\/" > $1
    fi
    #
    # Build a list of all dependencies for this package 
    #
    if [ ! -f $2 ] ; then
-      rpm -q -R $3 > .tmpDep.lst
+      $RPM -q -R $3 > .tmpDep.lst
       for fn in `cat .tmpDep.lst` ; do 
          echo Depends on $fn >> $2
          # 
@@ -318,7 +318,7 @@ function cmd_line_parse
    #
    # verify that package is installed, install if not
    #
-   rpm -q "$progName" > .result 2>&1
+   $RPM -q "$progName" > .result 2>&1
    if grep -q "not installed" .result ; then
       #
       echo ""

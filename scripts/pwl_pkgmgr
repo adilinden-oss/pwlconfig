@@ -1,0 +1,709 @@
+#!/bin/bash
+#
+###
+# Usage: pwl_pkgmgr [ cmd [ parmeters ] ... ]
+#
+#
+#   "cmd"    "parameters"      Results
+#   --help                     This help screen
+#   --project project Name     Select project (default is last one used)
+#
+# Where:
+#    project Name is the name of a current PWL project
+#
+###
+#
+# History:
+#   v0.1 - created
+#
+# Comments:
+#
+######
+#pwl_pkgmgr.README
+#
+#  pkgmgr - allows adding / deleting and updating packages from 
+#           RPM files (precompiled stuff) or RPMS files (source files)
+#           
+#END
+######
+#
+#=============================================================================
+#
+# include generally handy functions
+#
+if [ -f "./scripts/pwl_functions" ] ; then
+  . ./scripts/pwl_functions
+elif [ -f "./pwl_functions" ] ; then
+  . ./pwl_functions
+else
+  echo "script pwl_functions not found"
+fi
+#
+PWL_PWL_PKGMGR_VER=${PWL_REL_VER}".1"
+#
+PWL_RPM_TOP_DIR="$PWD/src"
+#
+PKG_RPMS_DIR="./src/RPMS/i386"
+PKG_SRPMS_DIR="./src/SRPMS"
+PKG_SRC_SPECS_DIR="src/SPECS"
+#
+# rpm macros file is kept here
+#
+PWL_RPMMACROS="$HOME/.rpmmacros"
+#
+#=============================================================================
+#
+# show_pwl_pkgmgr ( select.lst ) - show checklist of items
+#
+function show_pwl_pkgmgr()
+{
+   if [ -z "$pwl_pkgmgrDefault" ] ; then
+      pwl_pkgmgrDefault=Add
+   fi
+   echo -n $DIALOG --title "'Manage Package Files Menu'" \
+                   --backtitle "'$backtitle'"      \
+                   --menu                          \
+"'Select a Package to use or choose a command        Project: $CFG_BASE'" \
+              $ROWS $COLS $((ROWS-8))                                 \
+             "'$pwl_pkgmgrDefault'" > .dialog
+
+   cat $1 >> .dialog
+   . ./.dialog
+}
+
+#
+# build_pwl_pkgmgr( dialog_file, path )
+#  - create dialog of operations and selectable items
+#
+function build_pwl_pkgmgr ()
+{
+   $decho "start build_pwl_pkgmgr $*"
+   #
+   # insert command operations in menu
+   #
+   echo -n "" > $1
+   echo -n " 'Add'     'Extract binary RPM to a PeeWee Linux package -->'" >> $1
+   echo -n " 'AddAll'  'Extract ALL binary RPM files'     "   >> $1
+   echo -n " 'DirB'    'Location of RPMS:$PKG_RPMS_DIR '   "  >> $1
+   echo -n " 'Clean'   'Delete all packages'               "  >> $1
+   echo -n " 'skip'    '------' "                             >> $1
+   echo -n " 'Make'    'Compile source to binary RPM '"       >> $1 
+   echo -n " 'MakeAll' 'Compile ALL sources to binary RPMs'"  >> $1 
+   echo -n " 'DirS'    'Location of SRPMS:$PKG_SRPMS_DIR '"   >> $1
+   echo -n " 'DirTop'  'Root for all RPM operations'      "   >> $1
+   echo -n " 'skip2'   '------' "                             >> $1
+   echo -n " 'Del'     'Delete a Package'                 "   >> $1
+   #
+   if [ ! -z "$2" -a "$2" != "." ] ; then
+      # allow jump back to root directory - fake traversal
+      echo -n " '.'     '..'     "           >> $1
+   fi
+   #
+   #
+   # list all package file categories and files found
+   #
+   for prjName in `find $PKG_DIR/$2/* -maxdepth 1 -type d | sort; find $PKG_DIR/$2 -maxdepth 1 -name *.tar | sort` 
+   do
+      #
+      if [ ! -z "$prjName" ] ; then
+            prjFn=`basename $prjName`
+            echo -n " '$prjFn' '$prjFn' " >> $1
+      fi
+   done
+   #
+   $decho "end build_pwl_pkgmgr"
+}
+
+#
+# pkgmgr_rpm_rc_file( src_directory )
+#   creates the resource file used for extracting packages
+#
+function pkgmgr_rpm_rc_file()
+{
+   if [ ! -d "$1" ] ; then
+      mkdir -p "$1"
+   fi
+   if [ ! -d "$1" ] ; then
+      echo "Topdir Error"
+      exit
+   else
+      echo -e "%_topdir\t$1" > $PWL_RPMMACROS
+      PWL_RPM_TOP_DIR="$1"
+   fi
+}
+
+#
+#  rpm_depends( path/file )
+#       Outputs a list of files that a given file depends on.
+#
+function pkgmgr_file_depends()
+{
+   $decho "start pkgmgr_rpm_depends $*"
+   #
+   # generate a list of dependancies from extracted rpm files 
+   #
+   rpmRoot=${PWD}"/rpm"
+   #
+   # rpm list dependancies, gawk strips leading/trailing blanks
+   #
+   $RPM -qRf $1  --root ${rpmRoot} --dbpath /.rpm_db | gawk '{print $1}'
+   #
+}
+ 
+#
+# pkgmgr_rpm_extract( RPMfile, package_directory )
+#      extracts the given rpm file as a configurable tar package
+#
+function pkgmgr_rpm_extract()
+{
+   $decho "start pkgmgr_rpm_extract $*"
+   #
+   srcName=$1
+   pkgDir=$2
+   #
+   rpmOptions="--force  --noscripts --nodeps --notriggers \
+               --dbpath /.rpm_db  --ignorearch --ignoreos"
+   #
+   # extract the rpm file to specific subdirectory 
+   # (based on package group - remove spaces from group name)
+   #
+   grpName=`$RPM -q --queryformat %{GROUP} -p $srcName | sed 's/ /_/g'`
+   pkgName=`$RPM -q --queryformat %{NAME}  -p $srcName | sed 's/ /_/g'`
+   pkgVers=`$RPM -q --queryformat %{VERSION}  -p $srcName`
+   pkgSize=`$RPM -q --queryformat %{SIZE}  -p $srcName`
+   #
+   # let's keep track of kernel versions!
+   if echo "$pkgName" | grep -q "^kernel-"; then
+       pkgName="${pkgName}-${pkgVers}"
+   fi
+   #
+   #if [ "$pkgSize" = "0" ] ; then
+   #   echo "Package size is zero, nothing done - bad package ??"
+   #   return 1
+   #fi
+   loc=$PWD         # remember where we started
+   #
+   if [ ! -d $loc/rpm ] ; then
+      mkdir  $loc/rpm
+      mkdir  $loc/rpm/.rpm_db
+   else
+      rm -rf $loc/rpm/*  # cleanup from previous rpm files 
+                         # rpm database remains
+   fi
+   cd     $loc/rpm
+   rootDir=$PWD
+   #
+   # Install the rpm file
+   #
+   $RPM -i --root $rootDir $rpmOptions $srcName
+   #
+   # remove the trash created by rpm
+   #
+   # DONT rm -rf .rpmtmp
+   #
+   # build one tar file of all extracted files
+   #
+   tar -cvpf .${pkgName}.tar *
+   #
+   cd $loc          # return from whence we came
+   # 
+   # copy resulting tar file to package directory location
+   # 
+   if [ ! -d $PKG_DIR/$grpName ] ; then
+      mkdir -p $PKG_DIR/$grpName
+   fi
+   #
+   tarFn="$PKG_DIR/$grpName/${pkgName}.tar"
+   mv "$loc/rpm/.${pkgName}.tar" $tarFn
+   #
+   # cleanup
+   # 
+   $decho "pkgmgr_rpm_extract done"
+   return 0
+}
+
+#
+# pkgmgr_rpm_compile -  base name is xxx-n.src.rpm
+#
+function pkgmgr_rpm_compile()
+{
+   $decho "start pkgmgr_rpm_compile $*"
+   #
+   srpmsName=$1
+   if [ ! -f $srpmsName ] ; then 
+      errMsg="Could not find source file: $srpmsName"
+      return 1
+   fi
+   #
+   # rpm has rebuild option and clean works here too!
+   #
+   $RPM --rebuild $srpmsName
+   #
+   ########################### works but not needed keep for prosperity
+   ## first extract the source rpm into SOURCES and SPEC files
+   #rpm -i $srpmsName
+   ##
+   ## Now do the compile operation
+   ##
+   #xxName=`rpm -q --queryformat "%{NAME}-%{VERSION}" -p $srpmsName`
+   #specName="$PWD/${PKG_SRC_SPECS_DIR}/${xxName}.spec"
+   ##
+   #errMsg=""
+   #if [ -f $specName ] ; then 
+   #   # bug in rpm - rmsource doesn't remove the spec file
+   ##   # use bb to build just the binary, don't update the source file
+   #   #
+   #   rpm -bb --clean --rmsource  $specName
+   #
+   #else
+   #   errMsg="Could not find spec file: $specName"
+   #   return 1
+   #fi
+   #######################################
+  $decho "done pkgmgr_rpm_compile"
+   #
+   return 0
+}
+
+#
+# pwl_pkgmgr_init - Initialize project environment
+#
+function pwl_pkgmgr_init()
+{
+   $decho "start pwl_pkgmgr_init $*"
+   #
+   # init stuff
+   #
+   pwl_init_project
+   default_define          # set global variables for project defaults
+   #
+   # build rpm macros if one doesn't exist
+   #
+   if [ ! -f $PWL_RPMMACROS ] ; then
+      pkgmgr_rpm_rc_file $PWL_RPM_TOP_DIR
+   fi
+   #
+   $decho "done pwl_pkgmgr_init"
+}
+
+#
+# pkgmgr_cmd_add( srcFilename )
+#  --
+function pkgmgr_cmd_add()
+{
+   srcFilename=$1
+   #
+   $RPM --checksig $srcFilename > /dev/null 2>/dev/null
+   if [ "$?" != "0" ] ; then
+      return 1
+   else
+      #
+      pkgmgr_rpm_extract $srcFilename $PKG_DIR 
+      if [ $? = "0" ] ; then
+         #
+         # built list file for future reference
+         #
+         if [ -f $tarFn ] ; then
+            $PWL_LISTER --list $tarFn 
+         fi
+      fi
+   fi
+   return 0
+}
+
+#
+# cmd_make - 
+#  uses rpm to extract/compile/install the source rpm file given
+#
+function pkgmgr_cmd_make()
+{
+   srcFilename=$1
+   #
+   $RPM --checksig $srcFilename > /dev/null 2>/dev/null
+   if [ "$?" != "0" ] ; then
+      return 1
+   else
+      pkgmgr_rpm_compile $srcFilename
+      if [ $? != 0 ] ; then
+         echo "Error: $errMsg"
+         read x
+      fi
+   fi
+   return 0
+}
+
+#=============================================================================
+#
+#  pwl_pkgmgr_xxx functions go here !!
+#
+#
+# pkgmgr_add( )
+# - interactive function to add a binary package xxx.rpm file to the
+#  packages directory in tar format...
+#
+function pkgmgr_add
+{
+   $decho "start pkgmgr_add"
+   #
+   srcPath=$PKG_RPMS_DIR
+   #
+   #  get package filename
+   #
+   FileSelect $srcPath "srcFilename" "*.rpm" 
+   #
+   if [ ! -z "$srcFilename" ] ; then
+      pkgmgr_cmd_add $srcFilename |tee .results 
+      if [ "$?" != "0" ] ; then
+         show_message "Invalid Package File Specified" \
+               "File $srcFilename is not a valid RPM package file"
+      else 
+         #
+         show_results .results "RPM Package Extracted"
+      fi
+   fi
+   $RM .results
+   $decho "done pkgmgr_add"
+}
+
+#
+# add_all - extracts all rpm files in RPMS directory into tar files
+#
+function pkgmgr_add_all()
+{
+   echo "Reloading all packages from Binary RPMS"  
+   #
+   for rpmFile in `find ${PKG_RPMS_DIR}/ -name *.rpm` ; do
+      echo -n "Extracting $rpmFile."
+      pkgmgr_rpm_extract $PWD/$rpmFile $PKG_DIR > /dev/null 2> /dev/null
+      echo  ".."
+   done   
+   #
+   # built all list files for future reference
+   #
+   $PWL_LISTER --list 
+   #
+   echo "Reload done..."
+}
+
+#
+# pkgmgr_src_dir( dir_var )
+# - sets the given variable to a directory selected via a file selection dialog
+#
+function pkgmgr_src_dir
+{
+   srcPath=`eval $1`
+   if [ -z "$srcPath" ] ; then
+      srcPath="."
+   fi
+   #
+   FileSelect $srcPath "srcFilename" "*.rpm" Dir-only
+   #
+   loc=$PWD
+   srcFilename="."${srcFilename##$loc}
+   #
+   if [ ! -z $srcFilename ] ; then
+      eval $1=\"$srcFilename\"
+   fi
+   #
+}
+
+#
+# pkgmgr_make - select a source rpm file SRPMS to compile 
+#
+function pkgmgr_make()
+{
+   $decho "start pkgmgr_make $*"
+   #
+   srcPath=$PKG_SRPMS_DIR
+   #
+   FileSelect $srcPath "srcFilename" "*.src.rpm"
+   if [ ! -z $srcFilename ] ; then
+      pkgmgr_cmd_make $srcFilename 2>&1 |tee .results
+      if [ "$?" != "0" ] ; then
+         show_message "Invalid Package File Specified" \
+               "File $srcFilename is not a valid RPM package file"
+       else
+          show_results .results
+      fi
+   fi
+   #
+   $decho "done pkgmgr_make"
+}
+
+#
+# make_all
+#   builds every RPM file found in the SRPMS directory
+#
+function pkgmgr_make_all()
+{ 
+   $decho "start pkgmgr_make_all"
+   echo "Recompiling all packages from Source RPMS...this will take forever"
+   #
+   for srcRpmFile in `find ${PKG_SRPMS_DIR}/ -name *.src.rpm | sort` ; do
+       echo -n "Compiling $srcRpmFile"
+       pkgmgr_cmd_make $PWD/$srcRpmFile > /dev/null 2> /dev/null
+       if [ $? != "0" ] ; then
+          echo "Problem : $errMsg"
+       fi
+       echo "..done."
+   done
+   #
+   $decho "done make_all"
+}
+#
+#
+#
+function pkgmgr_clean()
+{
+    show_confirm "Delete all packages" \
+                "Really delete all packages ?"
+    if [ "$?" = "0" ] ; then
+       $PWL_CLEAN --save-projects   # delete everything except user projects
+       show_message "All packages deleted" \
+               "Packages have been deleted. Compile or extract from source files to configure projects."
+    fi
+}
+
+#
+#
+#
+function pkgmgr_del()
+{
+   $decho "start pkgmgr_del $*"
+   defaultName="$1"
+   #
+   get_string "Delete Package" "Enter name of package to be deleted" srcName $defaultName
+   #  
+   if [ "$?" != "0" ] ; then
+      return 0
+   fi
+   #
+   if [ -z $srcName ] ; then
+      return 0 
+   fi
+   #
+   if [ ! -e "$PKG_DIR/$srcName" ] ; then
+      show_message "File Not Found" "Check path and name and guess again"
+   else
+      # remove the package file specified
+      # -- may leave an empty directory ?? 
+      # -- need to update any index files
+      #
+      rm -rf $PKG_DIR/$srcName
+   fi
+   $decho "done pkgmgr_del"	   
+}
+
+#
+# pkgmgr_update - checks the source rpm files against the packages
+#
+function pkgmgr_update()
+{
+   $decho "start pkgmgr_update $*"
+   #
+   #
+   $decho "done pkgmgr_update"
+}
+
+#=============================================================================
+#
+#
+# menu_pwl_pkgmgr - operate on ***
+#
+function menu_pwl_pkgmgr()
+{
+   $decho "start menu_pwl_pkgmgr"
+   pwl_pkgmgrDone=0
+   #
+   while [ "$pwl_pkgmgrDone" = "0" ]; do
+      #
+      #  build list ***
+      #
+      build_pwl_pkgmgr .select.lst $pkg_path
+      #
+      show_pwl_pkgmgr .select.lst 2>.result
+
+      retVal=$?
+      read selection <.result
+      pwl_pkgmgrDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            pwl_pkgmgrDone=1
+           ;;
+         2)                          # help
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_pkgmgr.README
+            show_help pwl_pkgmgr.README
+           ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           #
+           case "$selection" in
+             "Add")                  # operation "Add"
+                pkgmgr_add 
+                ;;
+             "Del")                  # operation "Del"
+                pkgmgr_del $pkg_path/$pkg_name
+                ;;
+             "AddAll")
+                pkgmgr_add_all
+                ;;
+             "DirB")
+                pkgmgr_src_dir  PKG_RPMS_DIR
+                ;;
+             "Clean")
+                pkgmgr_clean
+                ;;
+             "Make")                    # operation to compile
+                pkgmgr_make
+                ;;
+             "MakeAll")                  # operation to compile all
+                pkgmgr_make_all
+                ;;
+             "DirS")
+                pkgmgr_src_dir PKG_SRPMS_DIR
+                ;;
+             "DirTop")
+                pkgmgr_srcs_dir tmp_PWL_RPM_TOP_DIR
+                if [ ! -z tmp_PWL_RPM_TOP_DIR ] ; then
+                   pkgmgr_rpm_rc_file $tmp_PWL_RPM_TOP_DIR
+                fi
+                ;;
+             "Total"|"Skip"|"skip")
+                ;;
+             "."|"..")               # back to root
+                pkg_path=""   
+                ;;
+             *)                      # list item selected
+                if [ -d $PKG_DIR/$selection ] ; then 
+                   pkg_path="$selection"
+                
+                elif [ -f $PKG_DIR/$pkg_path/$selection ] ; then
+                   pkg_name="$selection"
+                fi
+                ;;
+           esac       # end select item
+           ;;
+       esac    # end dialog response
+
+   done    # end while configuring
+
+   #
+   # return clean
+   #
+   $RM .select.lst .result .dialog  .show_result pwl_pkgmgr.README
+   $decho "end menu_pwl_pkgmgr"
+   return 0
+}
+
+#=============================================================================
+#
+# main - parse command line
+#
+function pwl_pkgmgr_main()
+{
+   progInfo="`basename $0` - Version $PWL_PWL_PKGMGR_VER"
+   if [ "$backtitle" = "" ] ; then
+      backtitle=$progInfo
+   fi
+   pwl_pkgmgr_init INIT_ONLY   # INIT_ONLY is a flag for pwl_pkgmgr only- remove this!
+   #
+   # parse command line and execute commands or do interactive
+   #
+   gotOne=0
+   while [ "$1" != "" ] ; do
+      $decho "parse $*"
+      case "$1" in
+         "--help")                   #--help
+            usage
+            ;;
+
+         "--project")                #--project - assign current project
+            pwl_init_project $2
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         "--init")                   #--init
+            pwl_pkgmgr_init $2
+            gotOne=1
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+         "--add")                  # add a tar package from a binary rpm
+            pkgmgr_cmd_add
+            ;;
+         "--add-all")               # reload tars from All RPMS files
+            pkgmgr_add_all
+            gotOne=1
+            ;;
+         "--depends")               # list dependencies for given file
+            pkgmgr_file_depends $2 
+            gotOne=1
+            shift
+            ;;
+         "--path-binary")            #--set rpm binary path
+            if [ -d "$2" ] ; then
+               PKG_RPMS_DIR=$2
+               shift
+            else 
+               usage "directory $2 not found"
+            fi
+            ;;
+
+         "--make")            # compile a package
+            if [ -f "$2" ] ; then
+               pkgmgr_cmd_make $2
+               shift
+            else
+               usage "Package not found: $2"
+            fi
+            ;;
+
+         "--make-all")                # recompile all 
+            pkgmgr_make_all
+            ;;
+
+         "--path-source")             #--set source path
+            if [ -d "$2" ] ; then
+               PKG_SRPMS_DIR=$2
+               shift
+            else 
+               usage "directory $2 not found"
+            fi
+            ;;
+
+         "--update")             # check if any source rpms are newer
+            pkgmgr_update
+            gotOne=1
+            ;;
+        
+         *) usage "Invalid command $*"
+            ;;
+      esac
+      shift
+   done
+   #
+   # do interactive operation
+   #
+   if [ $gotOne = "0" ] ; then
+      #
+      usrMode="I"      # enable interactive mode
+      menu_pwl_pkgmgr
+   fi
+}
+
+# start here
+  debug_mode 0        # set to 1 to enable debug macros
+
+  $decho "START $0"
+
+  pwl_pkgmgr_main $*
+
+  $decho "END $0"
+
+  exit 0
+#
+# end
+#

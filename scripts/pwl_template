@@ -109,7 +109,7 @@ function build_template ()
    #
    echo -n "" > $1
    echo -n " 'Add'    'Create a new template -->'  "        >> $1
-   echo -n " 'skip'   '------' "                            >> $1
+   echo -n " 'skip'   '---sample list below---' "           >> $1
    #
    # heres's a sample for building a 'marked' list
       #
@@ -154,7 +154,7 @@ function template_init()
       get_string "Enter File name"    \
                  "Enter name of new script file to create:"  \
                  newName
-                    retVal=$?
+      retVal=$?
       if [ "$retVal" != "0" ] ; then
          $decho "end template_init no name given $retVal"
          return 1

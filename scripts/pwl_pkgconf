@@ -18,10 +18,6 @@
 #
 ###
 #
-# History:
-#   v0.85 - replaced paths to temp file with CFG_FILE_TMP
-#   v0.1 - created
-#
 # Comments:
 #
 ######
@@ -88,7 +84,7 @@ else
   echo "script pwl_functions not found"
 fi
 #
-PWL_PKGCONF_VER=${PWL_REL_VER}".1"
+PWL_PKGCONF_VER=${PWL_REL_VER}".2"
 #
 #
 #=============================================================================
@@ -133,12 +129,14 @@ function build_pwl_pkgconf ()
    #  allow custom files operation
    #
    echo -n " 'Unique' 'Configure Custom files for \"$CFG_BASE\" -->' " > $1
+   echo -n " 'Search' 'Search available Packages -->' " >> $1
+   echo -n " 'Depend' 'Check configuration dependencies -->' " >> $1
    echo -n " 'Skip'   '----' " >> $1
    #
    # list all subdirectories files found in packages directory
    #
    gotOne=0
-   for pkgDirName in `find $2 -type d | sort`;
+   for pkgDirName in `find $2 -type d -maxdepth 1 | sort`;
    do
       #
       # show directory names (except root of this directory)
@@ -255,12 +253,13 @@ function build_pkg_list()
    #
    totalSz=0
    for sysFn in `cat $pkgDir/$pkgFn".list"`; do
-      echo -n "."   # show user we are doing something
+      echo -n "."      # show user we are doing something
       #
       # read filesize for this file (file size must be at start of line)
       #
-      if grep -q $sysFn$ .result ; then
-         fileSz=`grep $sysFn$ .result | cut -d" " -f1`
+      if grep -q "$sysFn$" .result ; then
+         # not sure how, might get two lines here-in...
+         fileSz=`grep "$sysFn$" .result | cut -d" " -f1 | head -1`
       else
          fileSz=0
       fi
@@ -268,8 +267,8 @@ function build_pkg_list()
       # if file is in the status list file then flag it
       #    use Exact match, allow empty directory select
       #
-      if grep -q $sysFn$ "$PWL_PRJ"/.$pkgFn".list" ; then
-        echo -n "'$sysFn' '[*] $sysFn "  >> $2
+      if grep -q "$sysFn$" "$PWL_PRJ"/.$pkgFn".list" ; then
+        echo -n " '$sysFn' '[*] $sysFn "  >> $2
         totalSz=`expr $totalSz + $fileSz`
       else
          echo -n "'$sysFn' '[ ] $sysFn " >> $2
@@ -293,11 +292,13 @@ function build_pkg_list()
 #
 function project_package_default()
 {
-   $decho "start project_package_default"
-     #
-     #  list files found in the package directory
-     #
-     for lstFile in `ls $2/*list 2> /dev/null` ; do
+   $decho "start project_package_default $*"
+   #
+   local defaultDir=$2
+   #
+   #  list files found in the package directory
+   #
+   for lstFile in `ls $defaultDir/*list 2> /dev/null` ; do
         #
         # copy or remove list files from current configuration
         #
@@ -305,17 +306,19 @@ function project_package_default()
            grep -v "$lstFile"$ $1 > .result
            cp .result $1
         else
+           $decho "Including $lstFile into $1"
            echo $lstFile >> $1
            build_files_verify "$lstFile"  #create config files as required
         fi
-     done
-     if [ -f $1 ] ; then           #   if any added or removed, sort them
-        cat $1 | sort -u > .result
-        cp .result $1
-     else
-        echo -n "" > $1
-     fi
-  $decho "done project_package_default"
+   done
+   #
+   if [ -f $1 ] ; then           #   if any added or removed, sort them
+      cat $1 | sort -u > .result
+      cp .result $1
+   else
+      echo -n "" > $1
+   fi
+   $decho "done project_package_default"
 }
 
 #
@@ -373,11 +376,300 @@ function pwl_pkgconf_save()
    return 0
 }
 
+#
+# pwlconf_do_search( expression, matching files, selected matching files )
+#    Finds all files in the packages that matches the given expression. 
+#    from this list, builds a list of files that are currently selected
+#    the results are posted in the "selected_matching_files" file
+#
+function pkgconf_do_search()
+{
+   $decho "start pkgconf_do_search"
+   #
+   local expression="$1"
+   local searchList=$2
+   local searchEnabled=$3
+   #
+   # make sure we have our database file
+   #
+   if [ ! -s $PKG_INDEX ] ; then
+      $PWL_LISTER --index -c $PKG_INDEX
+   fi
+   #
+   # show package files and custom files that match
+   #  - list all available package files that match
+   #  - build list in format "path/packages:file" from global index file
+   #
+   echo -n > $searchList
+   pkgpath=`basename $PKG_DIR`
+   cut -f2 -d":" $PKG_INDEX | grep "${expression}" > .search.files    
+   for selFn in `cat .search.files` ; do
+     grep $selFn $PKG_INDEX | sed "s!${pkgpath}\/!!g" >> $searchList
+     echo -n "."
+   done
+   #
+   # show as selected all files that match from current configuration
+   #    (NOT including our temporary configuration)
+   #
+   grep "${expression}" $PWL_PRJ/*.list | sed "s!$PWL_PRJ!!g"  > .search.selected
+   #
+   # note we could select some files here which are not in 
+   #  project configuration (you can configure a package, then not include
+   #  the package) Thus, we must verify against the configuration file
+   #
+   echo -n "" > .search.conf
+   for selFn in `cat $PWL_PRJ/$CFG_Default` ; do
+       # find just the filename in the project configured packages
+       # 
+       grep `basename $selFn` .search.selected >> .search.conf
+       echo -n "."
+   done
+   #
+   # Now we know  "package:files" that are included in the project. Show
+   # them as enabled by choosing them from the list of all matching files.
+   #
+   echo -n "" > $searchEnabled
+   for selFn in `cat .search.conf` ; do
+      grep $selFn $searchList >> $searchEnabled
+      echo -n "."
+   done
+   #
+   # Also show the matching custom files - custom files are always selected
+   #
+   if [ -f "$PWL_PRJ/.$CUSTOM.LST" ] ; then
+      grep "${expression}" $PWL_PRJ/.$CUSTOM.LST   >> $searchList
+      grep "${expression}" $PWL_PRJ/.$CUSTOM.LST   >> $searchEnabled
+      #
+   elif [ -f "$PWL_PRJ/$CUSTOM.LST" ] ; then
+      grep "${expression}" $PWL_PRJ/$CUSTOM.LST    >> $searchList
+      grep "${expression}" $PWL_PRJ/$CUSTOM.LST    >> $searchEnabled
+   fi
+   #
+   $RM .search.files .search.conf .search.selected
+   $decho "done pkgconf_do_search"
+}
+
+#
+# pkgconf_search
+#    Performs a search by users expression and displays matching files
+#    for interactive picking and choosing.
+#
+function pkgconf_search()
+{
+   $decho "start pkgconf_search $*"
+   #
+   local exprIn=""
+   #
+   get_string "Search For Available Files"          \
+              "Enter regular Expression to search:" \
+               exprIn 
+   retVal=$?
+   if [ "$retVal" != "0" ] ; then
+      $decho "no expression entered"
+      return
+   fi
+   #
+   pkgconf_do_search  "$exprIn"  .search.lst .search.enabled
+   #
+   if [ ! -s .search.lst ]  ; then
+      show_message "No Matches found" "Failed to find any match for: $exprIn"
+   else
+      # save the current configuration
+      sort -u .search.enabled > .search.original
+      #
+      # allow user to choose which files are desired
+      #
+      choose_files .search.lst .search.enabled "Search Results"
+      retVal=$?
+      if [ $retVal = "0" ] ; then
+         #
+         $decho "accepting selected files"
+         pkgconf_add_delete add .search.enabled
+         #
+         $decho "disable  unselected items"
+         comm -23 .search.original .search.enabled > .search.disabled
+         pkgconf_add_delete delete .search.disabled
+      fi
+   fi
+   $RM .search.lst .search.enabled .search.original .search.disabled
+   $decho "done pkgconf_search"   
+}
+
+#
+#  pkgconf_add_delete ( [ add | delete ], list_pkg:file_file, [ verbose ] )
+#    Adds or deletes each file and it's package.  The list file contains
+#    package:filename format
+#
+function pkgconf_add_delete
+{
+   $decho "starting pkgconf_add_delete $*"
+   #
+   local enable=$1
+   local listPkgFiles=$2
+   #
+   for pathPkgFn in `cat $listPkgFiles` ; do
+      echo -n "."
+      pkgFn=`echo $pathPkgFn | cut -f2 -d":"`
+      pkgDirList=`echo $pathPkgFn | cut -f1 -d":"`
+      pkgListFn=`basename $pkgDirList`
+      #
+      if [ $enable = "add" ] ; then
+         #
+         [ "$3" != "" ] && echo "Adding $pathPkgFn"
+         #
+         # make sure package is part of project configuration
+           echo $PKG_DIR/$pkgDirList >> $CFG_FILE_TMP
+         #  
+         # make sure temporary configuration file exists
+           if [ ! -f $PWL_PRJ/.$pkgListFn ] ; then
+              if [ -f $PWL_PRJ/$pkgListFn ] ; then
+                 cp $PWL_PRJ/$pkgListFn $PWL_PRJ/.$pkgListFn
+              fi
+           fi
+         #
+         # add the file to the package list
+           echo $pkgFn >> $PWL_PRJ/.$pkgListFn
+         #
+      elif [ $enable = "delete" ] ; then
+         #
+         # remove file from list of enabled package files
+           if [ -f $PWL_PRJ/.$pkgListFn ] ; then
+              grep -v "$selection" "$PWL_PRJ"/.$pkgListFn > .result
+              sort -u .result > "$PWL_PRJ"/.$pkgListFn
+           fi
+         #
+      else
+         $decho "internal error: parameter add or delete only"
+      fi
+   done
+   $decho "done pkgconf_add_delete"
+}
+
+#
+# pkgconf_list_depends( dependsListFn, projectIndexFn )
+#
+#   - creates a list of dependancies assigned to the files in the project
+#   - projectIndexFn lists all files assigned in the project
+#
+function pkgconf_list_depends()
+{
+   local dependsFn=$1
+   local projectFn=$2
+   #
+if [ -s $dependsFn ] ; then
+   xx=1   # depends exists...don't make it again..for debug only
+   echo skipping build depends for debug...
+   read x
+else
+   echo -n "" > $dependsFn
+   echo -n "" > $projectFn
+   # 
+   for packageFn in `cat $CFG_FILE` ; do
+      echo "Checking dependents in package: $packageFn"
+      #
+      packageCfg=${PWL_PRJ}/`basename $packageFn`
+      echo "# Dependancies for package: $packageCfg" >> $dependsFn
+      #
+      # get all enabled files from the package list file, don't check 
+      #       on directories
+      #
+      for installedFn in `cat $packageCfg | grep -v "\/$"` ; do
+          echo -n "."
+          # maintain a list of all project files
+          #   
+          echo "/$installedFn" >> $projectFn
+          #
+          # check each file for it's dependencies
+          #
+          $PWL_PKGMGR --depends "/${installedFn}" >> $dependsFn 2> /dev/null
+      done
+      echo "."
+   done
+fi
+   #
+   $decho "done pkgconf_list_depends"
+}
+
+#
+#
+#
+function pkgconf_depends()
+{
+   $decho "start pkgconf_depends"
+   #
+   # check the project files and custom files for dependencies
+   #
+   pkgconf_list_depends        .dep.depends .prj.index.$CFG_BASE
+   $PWL_CUSTOM --depends    >> .dep.depends
+   cat $PWL_PRJ/$CUSTOM_LST >>              .prj.index.$CFG_BASE
+   #
+   # of all the depend files, list files not yet included in project
+   # - remove comments and grep from the project index
+   # - note the dependant files listed do not include their path
+   #
+   echo -n "" > .dep.needs
+   sort -u .dep.depends | grep -v "^#" > .dep.tmp
+   #
+   for depFn in `cat .dep.tmp` ; do
+      if ! grep -q "$depFn" .prj.index.$CFG_BASE ; then
+         echo $depFn >> .dep.needs
+         echo -n "."
+      fi
+   done
+   #
+   # allow user to choose dependent files to be included in project
+   #
+   if [ -s .dep.needs ] ; then
+      echo -n "" > .dep.enabled    # none are selected yet
+      echo -n "" > .dep.add        # list of packages:files to add
+      echo -n "" > .dep.notfound   # list of depends not found
+      #
+      choose_files .dep.needs .dep.enabled "Dependancy Results"
+      retVal=$?
+      if [ $retVal = "0" ] ; then
+         #
+         $decho "accepting selected files"
+         #
+         # search files in index and build list of package:file
+         #
+         for depFn in `cat .dep.enabled` ; do 
+            if grep -q "$depFn" $PKG_INDEX  ; then
+               grep "${depFn}" $PKG_INDEX >> .dep.add
+            else
+               echo $depFn >> .dep.notfound
+            fi
+         done
+         #
+         if [ -s .dep.notfound ] ; then
+            echo "The following dependent files were not found in any available " > .dep.results
+            echo "package files.  Upgrade your packages or add as custom files." >> .dep.results
+            echo "---" >> .dep.results
+            cat .dep.notfound >> .dep.results
+            show_results .dep.results "Dependent Files not located"
+         fi
+         #
+         if [ -s .dep.add ] ; then
+            pkgconf_add_delete add .dep.add VERBOSE > .dep.results
+         else
+            echo "No dependent files were found, none were added." > .dep.results
+         fi
+         #
+         show_results .dep.results "Depend files added"
+      fi
+   fi
+   #
+   $RM .dep.add .dep.enabled .dep.needs .dep.tmp .prj.tmp .dep.results
+   $RM .dep.notfound
+   $decho "done pkgconf_depends"
+}
 
 #=============================================================================
 #
-#
 # menu_pwl_pkgconf ( packageDirectory, [defaultItem] )
+#
+#   Display packages and allow user to enable/disable any package.
+#   Menu contains commands for custom configuration, search and depend
+#   checks.
 #
 function menu_pwl_pkgconf()
 {
@@ -427,6 +719,12 @@ function menu_pwl_pkgconf()
 
               "Unique")
                  $PWL_CUSTOM
+                 ;;
+              "Search")
+                 pkgconf_search
+                 ;;
+              "Depend")
+                 pkgconf_depends
                  ;;
 
               "Total"|"Skip"|"skip")
@@ -493,7 +791,7 @@ function menu_pkg_list()
       #
       build_pkg_list $1 .pack.lst
       #
-      show_files "'Configure Files Menu'" .pack.lst 2>.result
+      show_files "Configure Files Menu" .pack.lst 2>.result
       retVal=$?
       read selection <.result
       filesDefault=$selection

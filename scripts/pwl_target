@@ -1,0 +1,103 @@
+#!/bin/bash
+
+######################################################################
+#
+# pwl_target
+#
+# Integrates pwl_target_functions and pwl_target_load with pwlconfig 
+#
+
+##
+## Setup environment for current project
+##
+if [ -f "./scripts/pwl_functions" ] ; then
+  . ./scripts/pwl_functions
+elif [ -f "./pwl_functions" ] ; then
+  . ./pwl_functions
+else
+  echo "script pwl_functions not found"
+fi
+#
+# add in those handy target functions too
+#
+. ./$PWL_TARGETF
+. ./$PWL_TARGETL
+#
+###########################################################################
+#
+# pwl_target_init - initialize project variables
+#
+function pwl_target_init()
+{
+   $decho "start pwl_target_init $*"
+   #
+   # init stuff
+   #
+   pwl_init_project        
+   default_define          
+   #
+   # set globals for the target variables
+   #
+   rd_base=$baseprj
+   rd_project=$CFG_BASE
+   #
+   # envelope (path info)
+   #
+   func_rd_env
+   #
+   # default values
+   #
+   func_rd_defaults
+   #
+   # pwlconfigured default values
+   #
+   default_define
+   #
+   # pwlconfig configured variables
+   #
+   func_rd_pwlconfig
+   #
+   # set vaiables that depend on saved configuration
+   #
+   func_rd_define
+   #
+   # set logging to mono
+   #
+   rd_action_verbosity=mono
+   #
+   $decho "done pwl_target_init"
+}
+
+#
+# main - parse command line
+#
+function pwl_target_main()
+{
+   progInfo="`basename $0` - Version $PWL_PKGCONF_VER"
+   if [ "$backtitle" = "" ] ; then
+      backtitle=$progInfo
+   fi
+   pwl_target_init
+   #
+   # not doing command line - use default variables for all parameters
+   #
+   # do it and log all output
+   #
+   func_rd_build_$rd_scheme
+   #
+   # check for errors
+   #
+   if [ $? != "0" ]; then
+       rd_fail="fail"
+   fi
+}
+
+# start here
+  debug_mode 0        # set to 1 to enable debug macros
+
+  $decho "START $0"
+
+  pwl_target_main $*
+
+  $decho "END $0"
+ 

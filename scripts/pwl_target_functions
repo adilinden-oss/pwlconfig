@@ -1,0 +1,1125 @@
+#!/bin/bash
+
+######################################################################
+#
+# pwl_target_functions    # was: rd_functions, pwl_targetf
+#
+#  -- Include this file in any script needing access to target
+#
+#
+# Functions common to the ramdisk and flash disk building and loading
+# scripts.
+#
+# Description of functions
+# ========================
+#
+# func_rd_env                  defines the location of files and directories
+# func_rd_pwlconfig            overrides selected default values with
+#                              pwlconfig created values
+# func_rd_defaults             defines default values for projects,primarily
+#                              used by the rd_dialog script when defining a
+#                              new project
+# func_rd_save_project         saved user settings
+# func_rd_find_libs            find required libraries
+# func_rd_action               print message
+# func_rd_action_success       display results if successfull
+# func_rd_action_failure       display results if unsuccessfull
+# func_rd_action_warning       display results if unsuccessfull not fatal
+# func_rd_sanity               checks the environment for some files and
+#                              prepares for a build tests for target drive
+# func_rd_make_loopback        create a loopback device
+# func_rd_break_loopback       remove a loopback device
+# func_rd_boot_initrd          create an initrd to load the root fs
+# func_rd_boot_syslinux        create syslinux.cfg
+# func_rd_boot_lilo            create lilo.conf
+# func_rd_linuxrc_uncomp_rd    create linuxrc for uncompressed ramdisk
+# func_rd_linuxrc_ro_root_rd   create linuxrc for uncompressed ramdisk
+# func_rd_fstab_comp_rd_fat    create fstab for comp_rd_fat
+# func_rd_fstab_comp_rd_ext2   create fstab for comp_rd_ext2
+# func_rd_fstab_uncomp_rd      create fstab for uncomp_rd_[ext2|fat]
+# func_rd_fstab_ro_root_rd     create fstab for ro_root_rd
+# func_rd_fstab_floppy         create fstab for floppy system
+# func_rd_init_rd              create rc.init for ramdisk root
+# func_rd_init_ro_root_rd      create rc.init for ro_root_rd
+# func_rd_fix_inittab          edit inittab (temporary)
+#
+
+######################################################################
+#
+# func_rd_env     
+#
+# Define the location of binaries and files
+#
+function func_rd_env () {
+
+    # set the binaries location
+    rd_bin=$rd_base/bin
+
+    # set busybox binary base
+    rd_busybox=$rd_bin/busybox 
+
+    # set the pwl projects directory
+    rd_projectdir=$rd_base/projects
+
+    # set the location of the DOS mbr
+    rd_mbr=$rd_bin/mbr
+
+    # set the location of boot.b
+    rd_bootb=$rd_bin/boot.b
+
+    # clear our general purpose variable
+    rd_input=
+
+    # clear our error flag
+    rd_fail=
+
+    # screen output formatting
+    # set the ansi characters we use
+    # stolen from RedHat /etc/rc.d/init.d/functions
+    rd_action_column=60
+    rd_action_move_column="echo -en \\033[${rd_action_column}G"
+    rd_action_colour_success="echo -en \\033[1;32m"
+    rd_action_colour_failure="echo -en \\033[1;31m"
+    rd_action_colour_warning="echo -en \\033[1;33m"
+    rd_action_colour_normal="echo -en \\033[0;39m"
+
+    # set the path add our bin directory and the sbin dirs 
+    PATH="$rd_bin:$PATH:/sbin:/usr/sbin"
+
+}
+
+######################################################################
+#
+# func_rd_pwlconfig
+#
+# Usage: func_rd_pwlconfig
+#
+# This function is best called after defaults are assigned. It's meant
+# for pwlconfig to replace default values with pwlconfig configured
+# values
+#
+func_rd_pwlconfig () {
+
+    # translate the target scheme
+    rd_scheme="$target_scheme"
+
+    # temporary files directory
+    rd_tmp="$TMP_DIR"
+
+    # the pwlconfig project root
+    rd_projectbase="$PWL_PRJ"
+
+    # the extracted project filesystem root
+    rd_projectroot="$PWL_PRJ/$prjMnt"
+}
+
+######################################################################
+#
+# func_rd_defaults
+#
+# Usage: func_rd_defaults
+# 
+# This function is called by the rd_dialog script to preset variables
+# for a new project. Requires that $rd_base is set to the PeeWeeLinux
+# development environment root. And rd_project set to the project name.
+#
+# Call this function after the project name has been selected!
+#
+
+function func_rd_defaults () {
+
+    ####
+    # project specific global parameters
+
+    # define if we maintain fstab and rc.init
+    rd_initscripts=y
+
+    # define default verbosity
+    rd_action_verbosity=colour
+
+    # temporary files directory
+    rd_tmp="$rd_base/tmp"
+
+    # the temporary mount point
+    rd_mount="$rd_base/mnt"
+    
+    # the pwlconfig project root
+    # best left untouched!
+    rd_projectbase=$rd_projectdir/$rd_project
+
+    # the extracte project filesystem root
+    rd_projectroot="$rd_projectbase/mnt"
+
+    # the kernel name
+    rd_kernel=bzImage
+
+    # the initrd name
+    rd_initrd=initrd
+
+    # the ramdisk name
+    rd_ramdisk=ramdisk
+
+    # selected scheme
+    rd_scheme=comp_rd_fat
+
+    ####
+    # target specific options - floppy
+
+    # the target device
+    rd_floppy="/dev/fd0"
+
+    # the free space on the unompressed ramdisk
+    rd_ramdisk_fd_free=500
+
+    ####
+    # target specific options - hd or flash
+
+    # the target device on the development system
+    rd_target="/dev/sda"
+
+    # the final boot device
+    rd_boot="/dev/hda"
+    
+    ####
+    # bootloader options
+
+    # prompt timeout
+    rd_bp_time=5
+
+    # kernel label
+    rd_bp_label=linux
+
+    # vga options
+    rd_bp_vga=normal
+
+    ####
+    # single ramdisk parameters
+
+    # the free space on the uncompressed ramdisk in kB
+    rd_ramdisk_free="2000"
+
+    ####
+    # multiple ramdisk parameters
+
+    # the free space on the /dev - /var partition in kB
+    # this partition also contains the /var tree!!!
+    rd_dev_free="1000"
+
+    # the free space on the /etc partition in kb
+    rd_etc_free="100"
+
+    # the free space on the /home partition
+    # this partition also contains /root
+    rd_home_free="500"
+}
+
+######################################################################
+#
+# func_rd_define
+#
+# This function defines variables that depend on the saved settings
+# either generated by rd_dialog or pwlconfig
+#
+
+function func_rd_define () {
+
+    #####
+    # Project independent parameters
+
+    # script control
+   
+    # define logfile
+    rd_log=$rd_tmp/rd.log
+
+    # define deps file
+    rd_deps=$rd_tmp/rd.deps
+
+    # values used in filesystem size calculations
+
+    # define the initrd size
+    rd_initrd_size=500
+
+    # define the safety margin for the boot partition
+    rd_size_boot_margin=100
+
+    # define the safety margin for fit in flash calculations
+    rd_size_margin=20
+
+    # boot parameters passed to lilo or syslinux these are default 
+    # values! Some target layout scheme will override these values 
+    # at will!
+    #
+    # So we won't save these values with any project. But we do need
+    # to define them befor running any functions that modify or run
+    # the bootloader!
+
+    # define the kernel ramdisk size boot parameter margin
+    rd_bp_rd_margin=4000
+
+    # define the lilo map location
+    rd_bp_map=$rd_mount/map
+
+    # define boot.b location
+    rd_bp_bootb=$rd_mount/boot.b
+
+    # define kernel location
+    rd_bp_kernel=$rd_mount/$rd_kernel
+
+    # define initrd location
+    rd_bp_initrd=$rd_mount/$rd_initrd
+
+    # define root filesystem
+    rd_bp_root=/dev/ram
+
+    # define rd_ramdisk size (be generous this just limits the max
+    # ramdisk the kernel will accept.
+    rd_bp_rd=$((6000 + rd_bp_rd_margin))
+}
+
+######################################################################
+#
+# func_rd_save_project
+#
+# Save the configuration
+#
+
+func_rd_save_project () {
+    cat <<EOF
+
+#####
+#
+# Only change these if you really know what you are doing!!!
+#
+#####
+
+# define the initrd size
+rd_initrd_size=$rd_initrd_size
+
+# define the safety margin for the boot partition
+rd_size_boot_margin=$rd_size_boot_margin
+
+# define the safety margin for fit in flash calculations
+rd_size_margin=$rd_size_margin
+
+#####
+#
+# Configurable paramters
+#
+#####
+
+# selected device layout
+rd_scheme=$rd_scheme
+
+# define if we maintain fstab and rc.init
+rd_initscripts=$rd_initscripts
+
+# define default verbosity
+rd_action_verbosity=$rd_action_verbosity
+
+# temporary files directory
+rd_tmp=$rd_tmp
+
+# the temporary mount point
+rd_mount=$rd_mount
+
+# the kernel name
+rd_kernel=$rd_kernel
+
+# the initrd name
+rd_initrd=$rd_initrd
+
+# the ramdisk name
+rd_ramdisk=$rd_ramdisk
+
+####
+# target specific options - floppy
+
+# the target device
+rd_floppy=$rd_floppy
+
+# the free space on the unompressed ramdisk
+rd_ramdisk_fd_free=$rd_ramdisk_fd_free
+
+####
+# target device specific - hd or flash
+
+# the target device on the development system
+rd_target=$rd_target
+
+# the final boot device
+rd_boot=$rd_boot
+
+####
+# single ramdisk parameters
+
+# the free space on the uncompressed ramdisk in kB
+rd_ramdisk_free=$rd_ramdisk_free
+
+####
+# multiple ramdisk parameters
+# the free space on the /dev - /var partition in kB
+# this partition also contains the /var tree!!!
+rd_dev_free=$rd_dev_free
+
+# the free space on the /etc partition in kb
+rd_etc_free=$rd_etc_free
+
+# the free space on the /home partition
+# this partition also contains /root
+rd_home_free=$rd_home_free
+
+####
+# bootloader options
+
+# prompt timeout
+rd_bp_time=$rd_bp_time
+
+# kernel label
+rd_bp_label=$rd_bp_label
+
+# vga options
+rd_bp_vga=$rd_bp_vga
+
+EOF
+}
+
+######################################################################
+#
+# func_rd_find_libs
+#
+# This function will parse all the files in the project root directory
+# and determine which libraries are needed. Following it will search
+# the project root directory for existing libs and output information
+# about what has been found or is missing.
+#
+
+func_rd_find_libs () {
+
+    # clean the log file
+    >$rd_deps
+
+    # get dependencies
+    for i in `du -a $rd_projectroot | cut -f 2`; do
+
+        echo -n "."
+
+        if file $i | grep -q dynamic; then
+            ldd $i | tr -d [:blank:] | sed 's!\(.*\)=>.*!\1!' >> $rd_deps
+        fi
+
+    done
+
+    # sort dependencies and remove dups
+    sort $rd_deps | uniq > $rd_tmp/tmp.deps.libs
+    cat $rd_tmp/tmp.deps.libs > $rd_deps
+
+    # find the libs
+    for i in `cat $rd_deps`; do
+
+        j=`basename $i`
+        j=`find $rd_projectroot -name $j`
+
+        if [ $j ]; then
+            # found the lib
+            true
+        else
+            # missing the lib
+            echo "Missing: $i"
+        fi
+
+    done
+}
+ 
+######################################################################
+#
+# func_rd_action [message|success|failure|warning|test] <string>
+#
+# This function will output to the console based on the desired action
+# and verbosity level
+#
+# message    output string w/o cr
+# success    output success
+# failure    output failure
+# warning    output warning
+# test       test exit status of previous command and act accordingly
+#
+
+func_rd_action () {
+
+    rd_action_exit_status=$?
+
+    # what do we output
+    # we accept unambigious shortcuts
+    case $1 in
+    m*)
+        # message
+        if [ "$rd_action_verbosity" != "quiet" -a "$2" ]; then
+            echo -ne "$2  "
+        fi
+        ;;
+    s*)
+        # success
+        if [ "$rd_action_verbosity" != "quiet" ]; then
+            func_rd_action_success
+        fi
+        true
+        ;;
+    f*)
+        # failure
+        # set the error flag
+        rd_error=true
+        if [ "$rd_action_verbosity" != "quiet" ]; then
+            func_rd_action_failure
+        fi
+        rd_fail="fail"
+        false
+        ;;
+    w*)
+        # warning
+        if [ "$rd_action_verbosity" != "quiet" ]; then
+            func_rd_action_warning
+        fi
+        rd_fail="warn"
+        false
+        ;;
+    t*)
+        # test
+        if [ "$rd_action_exit_status" = "0" ]; then
+            [ "$rd_action_verbosity" != "quiet" ] && func_rd_action_success
+            true
+        else
+            # set the error flag
+            rd_error=true
+            [ "$rd_action_verbosity" != "quiet" ] && func_rd_action_failure
+            rd_fail="fail"
+            false
+        fi
+        ;;
+    *)
+        # this is not supposed to happen
+        return 1
+    esac
+}
+
+######################################################################
+#
+# func_rd_action_success
+#
+# This function will display an appropriate message if the action we
+# took worked.
+#
+
+func_rd_action_success () {
+
+    # dump to the screen
+    [ "$rd_action_verbosity" = "colour" ] && $rd_action_move_column
+    [ "$rd_action_verbosity" = "colour" ] && echo -n "[  "
+    [ "$rd_action_verbosity" = "colour" ] && $rd_action_colour_success
+    echo -n "ok"
+    [ "$rd_action_verbosity" = "colour" ] && $rd_action_colour_normal
+    [ "$rd_action_verbosity" = "colour" ] && echo -n "  ]"
+    echo -ne "\n"
+}
+
+######################################################################
+#
+# func_rd_action_failure
+#
+# This function will display an appropriate message if the action we
+# took didn't work. It will also set a flag to indicate an error
+# condition.
+#
+
+func_rd_action_failure () {
+
+    # dump to the screen
+    [ "$rd_action_verbosity" = "colour" ] && $rd_action_move_column
+    [ "$rd_action_verbosity" = "colour" ] && echo -n "["
+    [ "$rd_action_verbosity" = "colour" ] && $rd_action_colour_failure
+    echo -n "failed"
+    [ "$rd_action_verbosity" = "colour" ] && $rd_action_colour_normal
+    [ "$rd_action_verbosity" = "colour" ] && echo -n "]"
+    echo -ne "\n"
+}
+
+######################################################################
+#
+# func_rd_action_warning
+#
+# This function will display an appropriate message if the action we
+# took succeeded witch minor glitches.
+#
+
+func_rd_action_warning () {
+
+    # dump to the screen
+    [ "$rd_action_verbosity" = "colour" ] && $rd_action_move_column
+    [ "$rd_action_verbosity" = "colour" ] && echo -n "[ "
+    [ "$rd_action_verbosity" = "colour" ] && $rd_action_colour_warning
+    echo -n "warn"
+    [ "$rd_action_verbosity" = "colour" ] && $rd_action_colour_normal
+    [ "$rd_action_verbosity" = "colour" ] && echo -n " ]"
+    echo -ne "\n"
+}
+
+######################################################################
+#
+# func_rd_sanity
+#
+# This function simply checks for the existance of some files, fixes
+# wrong things and exits with an error code if things are really wrong
+#
+
+func_rd_sanity () {
+
+    # clear the error flag
+    rd_error=
+
+    # first do some checks on neede binaries
+    func_rd_action m "Testing for mkdosfs..." 
+    which mkdosfs &>/dev/null
+    func_rd_action test
+
+    func_rd_action m "Testing for syslinux..." 
+    which syslinux &>/dev/null
+    func_rd_action test
+
+    func_rd_action m "Testing for mke2fs..." 
+    which mke2fs &>/dev/null
+    func_rd_action test
+
+    func_rd_action m "Testing for sfdisk..." 
+    which sfdisk &>/dev/null
+    func_rd_action test
+
+    func_rd_action m "Testing for losetup..." 
+    which losetup &>/dev/null
+    func_rd_action test
+
+    # make sure our temp directory exists
+    func_rd_action m "Testing for tmp directory..." 
+    if [ -d $rd_tmp ]; then
+        func_rd_action s
+    elif mkdir -p $rd_tmp; then
+        func_rd_action s
+    else
+        func_rd_action f
+    fi
+
+    # make sure we have a mountpoint
+    func_rd_action m "Testing for mount directory..." 
+    if [ -d $rd_mount ]; then
+        func_rd_action s    
+    elif mkdir -p $rd_mount; then
+        func_rd_action s
+    else
+        func_rd_action f
+    fi
+    
+    # make sure our target drive is in place
+    func_rd_action m "Testing for target device $rd_target..." 
+    sfdisk -s $rd_target &>/dev/null
+    func_rd_action test
+
+    # make sure the target isn't mounted
+    func_rd_action m "Testing that target $rd_target is not mounted..." 
+    if mount | grep -q "$rd_target"; then
+        func_rd_action f
+    else
+        func_rd_action s
+    fi
+
+    # make sure out mount directory doesn't have anything mounted
+    func_rd_action m "Testing that nothing is mounted on mount directory..." 
+    if mount | grep -q "$rd_mount"; then
+        func_rd_action f
+    else
+        func_rd_action s
+    fi
+
+    # make sure we have a filesytem to work with
+    func_rd_action m "Testing for an existing project root..." 
+    if [ -d $rd_projectroot ]; then
+        func_rd_action s
+    else
+        func_rd_action f
+    fi
+
+    # return with error if something is wrong
+    [ $rd_error ] && return 1 || return 0
+}
+
+######################################################################
+#
+# func_rd_boot_initrd
+#
+# Usage: func_rd_boot_initrd
+#
+# This function creates a initrd which will execute the linuxrc script
+# the calling function or script laced in the $rd_tmp directory.
+#
+# The resulting initrd will be placed in the temporary directory
+#
+# Note: This initrd now utilizes the busybox binary. This reduces the
+#       space requirement dramatically since busybox now also acts as
+#       a shell. The busybox sources can be found in the develop
+#       directory. Look at Build_for_initrd for my notes.
+#
+
+func_rd_boot_initrd () {
+
+    # create the loopback device to copy stuff onto
+    func_rd_make_loopback $rd_initrd_size 1024
+
+    # mount loopback on our temporary mount point
+    func_rd_action m "Mounting loopback device to build initrd..."
+    mount -t ext2 $rd_loop_dev $rd_mount
+    func_rd_action test
+
+    # remove the lost+found
+    rm -rf $rd_mount/lost+found
+
+    func_rd_action m "Creating files and directories..."
+
+    # create directories
+    mkdir -p $rd_mount/bin
+    mkdir -p $rd_mount/sbin
+    mkdir -p $rd_mount/dev
+    mkdir -p $rd_mount/etc
+    mkdir -p $rd_mount/mnt
+
+    # create some devices
+    cp -a $rd_projectroot/dev/console $rd_mount/dev/console
+    cp -a $rd_projectroot/dev/systty $rd_mount/dev/systty
+    cp -a $rd_projectroot/dev/null $rd_mount/dev/null
+    cp -a $rd_projectroot/dev/ram $rd_mount/dev/ram
+    cp -a $rd_projectroot/dev/ram0 $rd_mount/dev/ram0
+    for i in 1 2 3 4 5 6 7 8 9; do
+        cp -a $rd_projectroot${rd_boot}${i} ${rd_mount}${rd_boot}${i}
+        cp -a $rd_projectroot/dev/ram$i ${rd_mount}/dev/ram$i
+    done
+    for i in 0 1 2 3 4; do
+        cp -a $rd_projectroot/dev/tty$i $rd_mount/dev/tty$i
+    done
+
+    # copy busybox binary and symlinks
+    cp -a $rd_busybox/* $rd_mount
+    func_rd_action test
+
+    # copy linuxrc
+    func_rd_action m "Copying linuxrc..."
+    cp -f $rd_tmp/linuxrc $rd_mount/linuxrc
+    func_rd_action test
+
+    # fix permissions        
+    chmod 755 $rd_mount/linuxrc
+    chown -R root.root $rd_mount/*
+
+    # create required files
+    >$rd_mount/etc/mtab
+
+    # all done unmount the loop device
+    func_rd_action m "Unmounting loopback device with initrd..."
+    umount $rd_mount
+    func_rd_action test
+
+    # create the initrd
+    func_rd_action m "Compressing loopback device into a initrd..."
+    { dd if=$rd_loop_dev bs=1k count=$rd_initrd_size | gzip -v9 > $rd_tmp/$rd_initrd } >>$rd_log 2>&1
+    func_rd_action test
+
+    # decomission loopback
+    func_rd_break_loopback
+}
+
+
+######################################################################
+#
+# func_rd_make_loopback
+#
+# Usage: func_rd_make_loopback <size in kB> [512|1024]
+#
+# This function creates a loopback device of the indicated size. The
+# loopdevice used is returned in $rd_loop_dev 
+#
+# Optionally create an inode for every 512 or 1024 bytes.
+#
+
+func_rd_make_loopback () {
+
+    # produce some clutter
+    func_rd_action m "Creating a loopback device..."
+
+    # set the size
+    if [ $1 ]; then
+        rd_loop_size=$1
+    else
+        func_rd_action f
+        return 1
+    fi
+
+    # define the loop file (leftover from an older approach)
+    rd_loop_file="$rd_tmp/loop.dev"
+
+    # create the loop device file
+    dd if=/dev/zero of=$rd_loop_file bs=1k count=$rd_loop_size >>$rd_log 2>&1
+
+    # assign a loopdevice
+    for rd_loop_dev_num in 0 1 2 3 4 5 6 7 8; do
+        rd_loop_dev=/dev/loop$rd_loop_dev_num
+        
+        # try to assign associate device with file
+        if losetup $rd_loop_dev $rd_loop_file >>$rd_log 2>&1; then
+            break
+        fi
+    done
+
+    # our highest available loop device is num 7 so if we get to 8
+    # we didn't succeed
+    if [ "$rd_loop_dev_num" = "8" ]; then
+        func_rd_action f
+        return 1
+    fi
+
+    # we succeeded in creating the loop device
+    func_rd_action s
+
+    # create the filesystem
+    func_rd_action m "Creating a filesystem on ${rd_loop_dev}..."
+    rd_error=
+    case $2 in
+    512)
+
+        # force an inode per 512 bytes
+        mke2fs -N $((rd_loop_size * 2)) -b 1024 -m0 $rd_loop_dev $rd_loop_size >>$rd_log 2>&1
+        func_rd_action test
+        ;;
+    1024)
+
+        # create an inode for every 1024 bytes
+        mke2fs -i 1024 -b 1024 -m0 $rd_loop_dev $rd_loop_size >>$rd_log 2>&1
+        func_rd_action test
+        ;;
+    *)
+
+        # make a normal filesystem
+        mke2fs -b 1024 -m0 $rd_loop_dev $rd_loop_size >>$rd_log 2>&1
+        func_rd_action test
+        ;;
+    esac
+    # return with error if something is wrong
+    [ $rd_error ] && return 1 || return 0
+}
+
+######################################################################
+#
+# func_rd_break_loopback
+#
+# Usage: func_rd_break_loopback
+#
+# This function decomissions a loopback device and removes the
+# associated file                        
+#
+
+func_rd_break_loopback () {
+
+    # create some clutter
+    func_rd_action m "Free loopback device $rd_loop_dev..."
+  
+    # decommission the device
+    losetup -d $rd_loop_dev >>$rd_log 2>&1
+    func_rd_action test
+
+    # get rid of the file
+    rm -f $rd_loop_file
+
+}
+
+######################################################################
+#
+# func_rd_boot_syslinux
+#
+# This function will output to stout a syslinux.cfg file which should
+# boot the kernel and ramdisk.
+#
+
+func_rd_boot_syslinux () {
+    cat <<-EOF
+	default $rd_bp_kernel
+	append ramdisk_size=$rd_bp_rd root=$rd_bp_root initrd=$rd_bp_initrd
+EOF
+}
+
+######################################################################
+#
+# func_rd_boot_lilo
+#
+# This function will output to stout a syslinux.cfg file which should
+# boot the kernel and ramdisk.
+#
+
+func_rd_boot_lilo () {
+    cat <<-EOF
+	disk      = $rd_target
+	    bios  = 0x80
+	boot      = $rd_target
+	linear
+	backup    = /dev/null
+	map       = $rd_bp_map
+	install   = $rd_bp_bootb
+	prompt
+	timeout   = $((rd_bp_time * 10))
+	initrd    = $rd_bp_initrd
+
+	image     = $rd_bp_kernel
+	    label     = $rd_bp_label
+	    root      = $rd_bp_root
+	    vga       = $rd_bp_vga
+	    ramdisk   = $rd_bp_rd
+	    read-only
+EOF
+}
+
+######################################################################
+#
+# func_rd_linuxrc_uncomp_rd
+#
+# This function creates the linuxrc file needed in the inital
+# ramdisk (initrd) to copy the rootfs partition from disk into memory
+#
+
+func_rd_linuxrc_uncomp_rd () {
+    cat <<-EOF
+	#!/bin/sh
+
+	echo "Copying filesystem ${rd_boot}2 to /dev/ram2...."
+	dd if=${rd_boot}2 of=/dev/ram2
+
+	echo "Flushing buffers to disk...."
+	sync
+
+EOF
+}
+
+######################################################################
+#
+# func_rd_linuxrc_ro_root_rd
+#
+# This function creates the linuxrc file needed in the initial ramdisk
+# (initrd) to copy the ramdisk images and partitions for the read-only
+# root filesystem target layout into memory
+#
+
+func_rd_linuxrc_ro_root_rd () {
+    cat <<-EOF
+	#!/bin/sh
+
+	echo "Mount root partition...."
+	mount -o ro -t ext2 ${rd_boot}1 /mnt
+
+	echo "Expanding ramdisk.dev...."
+	gunzip -c /mnt/boot/ramdisk.dev | dd of=/dev/ram2
+
+	echo "Expanding ramdisk.etc...."
+	gunzip -c /mnt/boot/ramdisk.etc | dd of=/dev/ram3
+
+	echo "Copying home...."
+	dd if=${rd_boot}2 of=/dev/ram4
+
+	echo "Unmount root partition...."
+	umount /mnt
+
+	echo "Flushing buffers to disk...."
+	sync
+
+EOF
+}
+
+######################################################################
+#
+# func_rd_fstab_comp_rd_fat
+#
+# This function creates the fstab file used for the compressed ramdisk
+# system with the boot filesystem being fat
+#
+
+func_rd_fstab_comp_rd_fat () {
+    cat <<-EOF
+	/dev/ram0       /               ext2    defaults
+	${rd_boot}1       /mnt/flash      msdos   ro,defaults
+	none            /proc           proc    defaults
+EOF
+}
+
+######################################################################
+#
+# func_rd_fstab_comp_rd_ext2
+#
+# This function creates the fstab file used for the compressed ramdisk
+# system with the boot filesystem being ext2
+#
+
+func_rd_fstab_comp_rd_ext2 () {
+    cat <<-EOF
+	/dev/ram0       /               ext2    defaults
+	${rd_boot}1       /mnt/flash      ext2    ro,defaults
+	none            /proc           proc    defaults
+EOF
+}
+
+######################################################################
+#
+# func_rd_fstab_uncomp_rd
+#
+# This function creates the fstab file used for the uncompressed
+# ramdisk system where the rootfs partition is copied into memory
+# using an initrd
+# 
+
+func_rd_fstab_uncomp_rd () {
+    cat <<-EOF
+        /dev/ram0       /               ext2    defaults
+        ${rd_boot}2       /mnt/flash      ext2    ro,defaults
+        none            /proc           proc    defaults
+EOF
+}
+
+######################################################################
+#
+# func_rd_fstab_ro_root_rd
+#
+# This function creates the fstab file for the read-only root target
+# layout. It contains multiple partitions.
+#
+
+func_rd_fstab_ro_root_rd () {
+    cat <<-EOF
+	${rd_boot}2       /            ext2    defaults,ro
+	/dev/ram2       /dev         ext2    defaults
+	/dev/ram3       /etc         ext2    defaults
+	/dev/ram4       /home        ext2    defaults
+	none            /proc        proc    defaults
+EOF
+}
+
+######################################################################
+#
+# func_rd_fstab_floppy
+#
+# This function creates the fstab file used for the uncompressed
+# ramdisk system where the rootfs partition is copied into memory
+# using an initrd
+# 
+
+func_rd_fstab_floppy () {
+    cat <<-EOF
+	/dev/ram0       /               ext2    defaults
+	none            /proc           proc    defaults
+EOF
+}
+
+
+######################################################################
+#
+# func_rd_init_rd
+#
+# This function creates the rc.init script for the root ramdisk based
+# systems
+#
+
+func_rd_init_rd () {
+    cat <<-EOF
+	#!/bin/sh
+	#
+	# /rc.init
+	#
+	# Starts the system. It only contains boot specific things like
+	# mounting filesystems. Upon termination it executes /etc/rc.sysinit
+	# to do all the traditional sysinit stuff.
+	#
+
+	# Set the path
+	PATH=/bin:/sbin:/usr/bin:/usr/sbin
+	export PATH
+
+	# Mount filesystems
+	echo "Remounting root read-write...."
+	mount -n -o remount,rw /
+
+	# Clear mtab
+	>/etc/mtab
+
+	# Enter root into mtab
+	mount -f /
+
+	# Mount remaining filesystems
+	mount -a
+
+	# Let the 'real' rc.sysinit take over
+	exec /etc/rc.sysinit
+EOF
+}
+
+######################################################################
+#
+# func_rd_init_ro_root_rd
+#
+# This script builds the rc.init script for a system with a read-only
+# root and multiple partitions.
+#
+
+func_rd_init_ro_root_rd () {
+    cat <<-EOF
+	#!/bin/sh
+	#
+	# /rc.init
+	#
+	# Starts the system. It only contains boot specific things like
+	# mounting filesystems. Upon termination it executes /etc/rc.sysinit
+	# to do all the traditional sysinit stuff.
+	#
+
+	# Set the path
+	PATH=/bin:/sbin:/usr/bin:/usr/sbin
+	export PATH
+
+	# Mount /etc
+	mount -n /etc
+
+	# Now that we have a read-write mtab
+	>/etc/mtab
+
+	# Enter root and etc into mtab
+	mount -f /
+        mount -f /etc
+
+	# Mount remaining filesystems
+	mount -a
+
+	# Let the 'real' rc.sysinit take over
+	exec /etc/rc.sysinit
+EOF
+}
+
+######################################################################
+#
+# func_rd_fix_inittab <etc>
+#
+# This function is a temporary fix to repair inittab for the new boot
+# schemes
+#
+
+func_rd_fix_inittab () {
+
+    # print some stuff
+    func_rd_action m "Editing inittab..."
+
+    # run sed on inittab
+    sed 's!/etc/rc.sysinit!/rc.init!' $rd_mount/$1/inittab > $rd_tmp/inittab
+    cat $rd_tmp/inittab > $rd_mount/$1/inittab
+
+    # print ok or not
+    func_rd_action test
+}
+
+### end

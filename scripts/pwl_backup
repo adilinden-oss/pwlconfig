@@ -6,15 +6,15 @@
 #     Performs operations on PWL backup files. Works
 #     from command line or interactively.
 #
-#   "cmd"       "parameters"   Results
-#   --help                     This help screen
-#   --project     project      Select project (default is last one used)
-#   --all                      Backup entire Embedded_Build Directory
-#   --current                  Backup current project
-#   --extracted                Backup current project as extracted
-#   --restore     filename     Restore given backup file
-#   --include     <dir type>   Build list of directories to include
-#   --all-included             Backup Items Included
+#   "cmd"          "parameters"    Results
+#   --help                         This help screen
+#   --project        project       Select project (default is last one used)
+#   --all                          Backup entire Embedded_Build Directory
+#   --current                      Backup current project
+#   --extracted                    Backup current project as extracted
+#   --restore        filename      Restore given backup file
+#   --include        <dir type>    Build list of directories to include
+#   --all-included                 Backup Items Included
 #
 #  Where:
 #   <dir type> specify type of files to be backuped, one of:
@@ -32,10 +32,7 @@
 #
 ###
 #
-# History:
-#   v0.86 - added command line options and more documentation
-#   v0.85 - dialog box tested, command line options not complete
-#   v0.1 - created
+# History see CHANGES.pwlconfig
 #
 # Comments:
 #
@@ -383,32 +380,40 @@ function backup_included()
 }
 
 #
-# backup_restore
+# backup_restore - prompt user to select file to extract
 #
 function backup_restore()
 {
    $decho "start backup_restore"
    #
-   echo -n "" > .exists.lst
-   for bkFn in $BKS_DIR/* ; do
-      echo -n  " '$bkFn' '$bkFn -->' " >> .exists.lst
-   done
-   #
-   show_files '"Restore from Backup File"' .exists.lst  2> .result
-   #
-   retVal=$?
-   read selection <.result
-      case "$retVal" in
-         1|2|255)                      # exit
-           xx=1
-           ;;
-         0|3|4|5|6)                    # restore selected file
-           #
-           $TAR -xzvf $selection > .result
-           show_results  .result "Restored Files from:$selection"
-           ;;
-      esac
-   #
+   # make sure we have at least one file
+   if [ `ls $BKS_DIR | wc -l` = "0" ]; then
+       show_message "No Backup Files" \
+           " The $BKS_DIR directory does not contain any files. Please create backups first."
+       $decho "no backup files to restore"
+   else
+       echo -n "" > .exists.lst
+       for bkFn in $BKS_DIR/* ; do
+          bkBn=`basename $bkFn`
+          echo -n  " '$bkFn' '$bkBn ' " >> .exists.lst
+       done
+       #
+       show_files "Restore from Backup File" .exists.lst  2> .result
+       #
+       retVal=$?
+       read selection <.result
+           case "$retVal" in
+              1|2|255)                      # exit
+               xx=1
+               ;;
+              0|3|4|5|6)                    # restore selected file
+               #
+               $TAR -xzvf $selection > .result
+               show_results  .result "Restored Files from:$selection"
+               ;;
+          esac
+       #
+   fi
    $RM .exists.lst
    $decho "done backup_restore"
 }

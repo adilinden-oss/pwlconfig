@@ -1,0 +1,458 @@
+#!/bin/bash
+
+######################################################################
+#
+# rd_dialog
+#
+# This script is the frontend for loading a flash device from a
+# filesytem build pwlconfig.
+#
+# Changelog see CHANGES.pwlconfig
+
+######################################################################
+#
+# Set variables pointing to files and directories
+#
+
+# define the directory name of the development root
+rd_basename="Embedded_Build"
+
+# define the development environment root
+for rd_base in `pwd` `pwd | sed "s/\(.*$rd_basename\).*$/\1/"`; do
+    [ `basename $rd_base` = "$rd_basename" ] && break
+    rd_base=
+done
+# if rd_base is unset we couldn't find it
+if [ -z $rd_base ]; then
+    echo "+-----+-----+-----+-----+-----+-----+-----+-----+-----+" >&2
+    echo " This script has to be run from within the PeeWeeLinux" >&2
+    echo " development directory tree ... " >&2
+    echo "+-----+-----+-----+-----+-----+-----+-----+-----+-----+" >&2
+    exit 1
+fi
+
+# set the location of the rd_ scripts
+rd_scripts=$rd_base/scripts
+#rd_scripts=$rd_base/misc   
+
+# source functions
+. /$rd_scripts/pwl_target_functions
+. /$rd_scripts/pwl_target_load
+
+# set more variables
+func_rd_env
+
+######################################################################
+#
+# func_rd_input
+#
+# Usage: func_rd_input <prompt> <preset setting>
+#
+# The result is returned on stout
+# Prompts are passed on sterr
+#
+# This functions displays the promt passed as first argument and the
+# preset setting passed as second argument. It asks for user input if
+# the user hits enter (cr) the preset setting is kept
+#
+func_rd_input () {
+
+    # make sure we have something passed to us
+    [ -z "$1" -o -z "$2" ] && exit 1
+
+    # display prompts
+    echo >&2
+    echo $1 >&2
+    echo -n " [ $2 ] ... " >&2
+
+    # reset our input variable
+    rd_input=
+
+    # get input
+    read rd_input
+
+    # if 'cr' keep existing settings
+    if [ $rd_input ]; then
+        echo $rd_input
+    else
+        echo $2
+    fi
+
+}
+
+
+######################################################################
+#
+# func_rd_input_choice
+#
+# Usage: func_rd_input_choice <prompt> <preset setting>
+#
+# This function will display a prompt and only accept a y/n answer.
+#
+
+func_rd_input_choice () {
+
+    # make sure we have something passed to us
+    [ -z "$1" -o -z "$2" ] && exit 1
+
+    rd_input=
+    while [ ! $rd_input ]; do
+        echo >&2
+        echo $1 >&2
+        echo -n " [ $2 ] ... " >&2
+
+        read rd_input
+
+        # this should be case insensitive
+        rd_input=`echo $rd_input | tr '[A-Z]' '[a-z]'`
+
+        # act on the input
+        if [ ! $rd_input ]; then
+
+            # keeping the old input
+            echo $2
+            break
+        elif [ "$rd_input" = "n" -o "$rd_input" = "no" ]; then
+
+            # answered no
+            echo "n"
+            break
+        elif [ "$rd_input" = "y" -o "$rd_input" = "yes" ]; then
+
+            # answered yes
+            echo "y" 
+            break
+        fi
+
+        # clear any nonmatching input
+        rd_input=
+    done
+
+}
+
+######################################################################
+#
+# func_rd_global_input
+#
+# Display global sourced settings and ask for user input
+#
+
+func_rd_global_input () {
+
+    # set the promt
+    PS3="Select Verbosity ... "
+
+    echo
+    # get the user selection
+    select rd_action_verbosity in quiet mono colour; do
+        if [ $rd_action_verbosity ]; then
+            break
+        fi
+    done
+   
+    # will we handle initscripts?
+    rd_initscripts=`func_rd_input_choice "Will fstab and rc.init be handled by this script ... " $rd_initscripts`
+
+    # temporary file directory
+    rd_tmp=`func_rd_input "Define directory for temporary files:" $rd_tmp`
+
+    # temporary mountpoint
+    rd_mount=`func_rd_input "Define the temporary mountpoint:" $rd_mount`
+
+    # kernel name
+    rd_kernel=`func_rd_input "Set the kernel name:" $rd_kernel`
+
+    # boot parms, timeout
+    rd_bp_time=`func_rd_input "Set the boot prompt timeout:" $rd_bp_time`
+
+    # boot parms, vga
+    rd_bp_vga=`func_rd_input "Set vga parameter for framebuffer support:" $rd_bp_vga`
+
+    # boot parms, label
+    rd_bp_label=`func_rd_input "Set the name the bootloader knows the kernel by:" $rd_bp_label`
+
+}
+
+######################################################################
+#
+# func_rd_global_hd_input
+#
+# Display flash or HD specific parameters, i.e. a device that can be
+# partitioned.
+#
+
+func_rd_global_hd_input () {
+
+    # target device
+    rd_target=`func_rd_input "Set the target device on the development system:" $rd_target`
+
+    # boot device
+    rd_boot=`func_rd_input "Set how the device will be known on the target system:" $rd_boot`
+}
+
+######################################################################
+#
+# func_rd_global_fd_input
+#
+# Display floppy specific parameters, i.e. a device that cannot be
+# partitioned.
+#
+
+func_rd_global_fd_input () {
+
+    # target device
+    rd_floppy=`func_rd_input "Set the target device on the development system:" $rd_floppy`
+
+    # the ramdisk name
+    rd_ramdisk=`func_rd_input "Set the ramdisk name:" $rd_ramdisk`
+
+    # free space on ramdisk
+    rd_ramdisk_fd_free=`func_rd_input "Define the amount of free space on the uncompressed ramdisk in kB for a floppy system" $rd_ramdisk_fd_free`
+}
+
+######################################################################
+#
+# func_rd_comp_ramdisk_input
+# 
+# Display choice 1 and 2 parameters
+#
+
+func_rd_comp_ramdisk_input () {
+
+    # the ramdisk name
+    rd_ramdisk=`func_rd_input "Set the ramdisk name:" $rd_ramdisk`
+
+    # free space on ramdisk
+    rd_ramdisk_free=`func_rd_input "Define the amount of free space on the uncompressed ramdisk in kB" $rd_ramdisk_free`
+ 
+}
+
+######################################################################
+#
+# func_rd_uncomp_ramdisk_input
+#
+# Display choice 3 and 4 parameters
+#
+
+func_rd_uncomp_ramdisk_input () {
+
+    # initrd name
+    rd_initrd=`func_rd_input "Set the initrd name:" $rd_initrd`
+
+    # free space on ramdisk
+    rd_ramdisk_free=`func_rd_input "Define the amount of free space on the uncompressed ramdisk in kB:" $rd_ramdisk_free`
+
+}
+
+######################################################################
+#
+# func_rd_readonly_root_input
+# 
+# Display choice 5 parameters
+#
+
+func_rd_readonly_root_input () {
+
+    # initrd name
+    rd_initrd=`func_rd_input "Set the initrd name:" $rd_initrd`
+
+    # free space on /dev and /var partition
+    rd_dev_free=`func_rd_input "Define the amount of free space on the /dev alias /var partition in kB:" $rd_dev_free`
+
+    # free space on /etc partition
+    rd_etc_free=`func_rd_input "Define the amount of free space on the /etc partition in kB:" $rd_etc_free`
+
+    # free space on the /home partition
+    rd_home_free=`func_rd_input "Define the amount of free space on the /home partition in kB:" $rd_etc_free`
+
+}
+
+######################################################################
+#
+# func_rd_scheme_input
+#
+# Display the loading scheme menu
+#
+# select doesn't treat strings right. Build my own select replacement
+#
+
+func_rd_scheme_input () {
+    rd_input=
+    while [ ! $rd_input ]; do
+    
+        # Display menu
+        echo
+        echo "  1)  Compressed ramdisk on FAT 16 partition"
+        echo "  2)  Compressed ramdisk on ext2 partition"
+        echo "  3)  Uncompressed ramdisk, boot from FAT 16 partition"
+        echo "  4)  Uncompressed ramdisk, boot from ext2 partition"
+        echo "  5)  Read-only root fs with multiple ramdisks"
+        echo "  ----- Non-flash target devices -----"
+        echo "  6)  Compressed ramdisk on floppy disk w/o bootloader"
+        echo "  7)  Compressed ramdisk on FAT12 floppy disk w/syslinux"
+        echo "  8)  Bootable iso image w/ramdisk"
+        echo "  9)  Bootable iso image w/read-only root"
+        echo "  -----    For testing only!     -----"
+        echo "  10) Read-write root on a single partition"
+
+        # display prompt and get input
+        echo -n "Select ... "
+        read rd_input
+
+        # act on input received
+        case $rd_input in
+        1 )
+            # save device scheme
+            rd_scheme=comp_rd_fat
+            # define global options
+            func_rd_global_input
+            # define hd type options
+            func_rd_global_hd_input
+            # define specific options
+            func_rd_comp_ramdisk_input
+            break
+            ;;
+        2 )
+            # save device scheme
+            rd_scheme=comp_rd_ext2
+            # define global options
+            func_rd_global_input
+            # define hd type options
+            func_rd_global_hd_input
+            # define specific options
+            func_rd_comp_ramdisk_input
+            break
+            ;;
+        3 )
+            # save device scheme
+            rd_scheme=uncomp_rd_fat
+            # define global options
+            func_rd_global_input
+            # define hd type options
+            func_rd_global_hd_input
+            # define specific options
+            func_rd_uncomp_ramdisk_input
+            break
+            ;;
+        4 )
+            # save device scheme
+            rd_scheme=uncomp_rd_ext2
+            # define global options
+            func_rd_global_input
+            # define hd type options
+            func_rd_global_hd_input
+            # define specific options
+            func_rd_uncomp_ramdisk_input
+            break
+            ;;
+        5 )
+            # save device scheme
+            rd_scheme=ro_root_rd
+            # define global options
+            func_rd_global_input
+            # define hd type options
+            func_rd_global_hd_input
+            # define specific options
+            func_rd_readonly_root_input
+            break
+            ;;
+        6 )
+            # save device scheme
+            rd_scheme=fd_raw
+            # define global options
+            func_rd_global_input
+            # define fd type options
+            func_rd_global_fd_input
+            break
+            ;;
+        7|8|9|10)
+            # not here yet
+            echo "Not yet implemented..."
+            ;;
+        esac
+
+        # Clear any nonmatching selecting
+        rd_input=
+    done
+
+# save settings
+func_rd_save_project > $rd_projectdir/$rd_project/config/rd_save
+
+# print a success message
+echo >&2
+echo "Settings have been saved in ... " >&2
+echo " $rd_projectdir/$rd_project/config/rd_save" >&2
+
+}
+
+######################################################################
+#
+# Find and display any existing configurations
+#
+
+# set the promt
+PS3="Select Project ... "
+
+# use the -t switch so the new selection is always on top
+select rd_project in `ls -t $rd_projectdir`; do
+    if [ $rd_project ]; then
+        break
+    fi
+done
+
+######################################################################
+#
+# Get a new project name from the user if "new" selected.
+# Source defaults for new projects and old settings for
+# existing projects.
+#
+
+# Let's see if we have an existing configuration
+if [ ! -f $rd_projectdir/$rd_project/config/rd_save ]; then
+
+    # we are configuring from scratch
+    # make sure the config directory exists
+    mkdir -p $rd_projectdir/$rd_project/config
+
+    # source the default settings
+    func_rd_defaults
+
+    # promt the user for information
+    func_rd_scheme_input
+
+else
+
+    # source the default settings
+    # this is necessary so added parms are properly procesed
+    # and nonconfigurable parms are not neglected
+    func_rd_defaults $rd_project
+
+    # source existing settings
+    . /$rd_projectdir/$rd_project/config/rd_save
+
+    # we have an existing configuration prompt to edit
+    if [ `func_rd_input_choice "Edit settings ... " "n"` = "y" ]; then
+        func_rd_scheme_input
+    fi
+fi
+
+# define variables dependent on saved settings
+func_rd_define
+
+######################################################################
+#
+# Load the device now!
+#
+
+# clear the log
+>$rd_log
+
+# The function we call end in the scheme identified by our rd_scheme
+# variable. So let's do it.
+echo >&2
+echo "Now building the filesystem and loading the target device ... " >&2
+func_rd_build_$rd_scheme
+
+
+
+

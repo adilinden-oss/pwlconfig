@@ -1,0 +1,1464 @@
+#!/bin/bash
+
+######################################################################
+#
+# pwl_target_load        # was rd_functions, pwl_target
+#
+#  To Do: 
+#    - search and destroy duplicated code; put in functions
+#    - test this 
+#
+# Functions common to the ramdisk and flash disk building and loading
+# scripts.
+#
+# Description of functions
+# ========================
+#
+# func_rd_build_comp_rd_fat    build compressed ramdisk on FAT partition
+# func_rd_build_comp_rd_ext2   build compressed ramdisk on ext2 partition
+# func_rd_build_uncomp_rd_fat  build uncompressed ramdisk boot from FAT
+# func_rd_build_uncomp_rd_ext2 build uncompressed ramdisk boot from ext2
+# func_rd_build_ro_root_rd     build read-only root fs w/ramdisks 
+# func_rd_build_fd_raw         build floppy system w/o bootloader
+#
+# Proposed:
+# func_rd_build_fd_fat         build floppy system w/syslinux on fat12
+# func_rd_build_rd_iso         build bootable iso image w/ramdisk
+# func_rd_build_ro_iso         build bootable iso image w/read-only root
+# func_rd_build_rw_root        build single read/write filesystem on flash
+#
+# func_rd_build                wrapper to parse config and run actual function
+#
+
+######################################################################
+#
+# func_rd_build_comp_rd_fat
+#
+# This function will create a target device with a single FAT 16
+# partition, the syslinux bootlader a kernel and a ramdisk. The
+# ramdisk is loaded as an initrd but permanently mounted as root fs
+#
+# Chain of events:
+# ================
+#
+# 1.  Sanity check
+#   a.  Check for binaries and files
+#   b.  Make sure we have a flash device
+#   c.  Make sure no flash partition is mounted
+# 2.  Calculate
+#   a.  Ramdisk size
+# 3.  Loopback
+#   a.  Create loopback device
+#   b.  Format loopback device
+# 4.  Mount loopback device
+# 5.  Copy files to loopback device
+# 6.  Create library loader cache
+# 7.  Unmount loopback device
+# 8.  Create compressed ramdisk from loopback device
+# 9.  Free loopback device and remove loopback file
+# 10. Calculate
+#   a.  Available space
+#   b.  Ramdisk size
+#   c.  Kernel size
+#   d.  Check if it fits
+# 11. Create partition on flashdrive
+# 12. Install master boot record (MBR)
+# 13. Create FAT 16 filesystem
+# 14. Install syslinux bootloader
+# 15. Mount flash drive
+# 16. Copy ramdisk image
+# 17. Copy kernel image
+# 18. Create syslinux.cfg on flash device
+# 19. Create config.tgz on flash and copy config.lst (optional)
+# 20. Unmount flash device
+# 21. Remove obsolete files from temporay holding area
+# 
+
+func_rd_build_comp_rd_fat () {
+    
+    # sanity check
+    func_rd_sanity || return 1
+
+    # calculate sizes
+    # determine filesystem size (w/o kernel)
+    rd_size_fs=`du -s -k --exclude=$rd_kernel $rd_projectroot | cut -f 1`
+    # add free space
+    rd_size_fs=$((rd_size_fs + rd_ramdisk_free))
+
+    # create loopback and format
+    func_rd_make_loopback $rd_size_fs || return 1
+
+    # mount loopback
+    func_rd_action m "Mounting loopback device..."
+    mount -t ext2 $rd_loop_dev $rd_mount
+    func_rd_action test || return 1 
+
+    # remove the lost+found directory
+    rm -rf $rd_mount/lost+found
+
+    # copy files using tar since tar makes it easy to exclude things
+    func_rd_action m "Copying files to loopback device..."
+    tar cp \
+        --exclude=$rd_kernel \
+        --directory=$rd_projectroot ./ | tar xp --directory=$rd_mount
+    if [ "$?" = "0" ]; then
+        func_rd_action s
+    else
+        func_rd_action w
+    fi 
+
+    # add fstab and rc.init
+
+    # make some noise
+    func_rd_action m "Creating fstab and rc.init..."
+
+    # see if we're allowed to
+    if [ "$rd_initscripts" = "y" ]; then
+
+        # lets do it!
+        func_rd_fstab_comp_rd_fat > $rd_mount/etc/fstab
+        func_rd_init_rd > $rd_mount/rc.init
+
+        # make sure rc.init is executable
+        chmod 755 $rd_mount/rc.init
+
+        # send the ok
+        func_rd_action s
+    else
+
+        # duh we're not configured print a warning
+        func_rd_action w
+    fi
+
+    # fix inittab
+    func_rd_fix_inittab etc
+
+    # run library loader and include XFree86 lib directory
+    func_rd_action m "Building ld.so.cache..."
+    ldconfig -r $rd_mount /usr/X11R6/lib
+    func_rd_action test
+
+    # unmount loopback
+    func_rd_action m "Unmounting loopback device..."
+    umount $rd_loop_dev
+    func_rd_action t
+
+    # compress the ramdisk
+    func_rd_action m "Compressing $rd_loop_dev into $rd_ramdisk..."
+    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs | gzip -v9 > $rd_tmp/$rd_ramdisk } >>$rd_log 2>&1
+    func_rd_action t
+
+    # free the loopback device
+    func_rd_break_loopback
+
+    # calculate sizes
+    func_rd_action m "Determining space on target device..."
+    # get flash size
+    rd_size_avail=`sfdisk -s $rd_target`
+    # get ramdisk size
+    rd_size_ramdisk=`du -s -k $rd_tmp/$rd_ramdisk | cut -f 1`
+    # get kernel size
+    rd_size_kernel=`du -s -k $rd_projectroot/boot/$rd_kernel | cut -f 1`
+
+    # Do we have enough room?
+    if [ $((rd_size_kernel + rd_size_ramdisk + rd_size_margin)) -ge $rd_size_avail ]; then
+        func_rd_action f
+        echo "  +Available Space: $rd_size_avail"
+        echo "  +Required Space:  $((rd_size_kernel + rd_size_ramdisk + rd_size_margin))"
+        return 1
+    else
+        func_rd_action s
+    fi
+
+    # fdisk target device
+    # note that partitions under 16MB should be FAT12
+    # and partitions under 32MB should be FAT16
+    func_rd_action m "Partition traget device $rd_target..."
+    if [ $rd_size_avail -lt 16000 ]; then
+        
+        # fdisk a device <16MB
+        sfdisk -q $rd_target >>$rd_log 2>&1 <<-EOF
+,,1,*
+EOF
+    elif [ $rd_size_avail -lt 32000 ]; then
+        
+        # fdisk a device <32MB
+        sfdisk -q $rd_target >>$rd_log 2>&1 <<-EOF
+,,4,*
+EOF
+    else
+
+        # fdisk a device >32MB
+        sfdisk -q $rd_target >>$rd_log 2>&1 <<-EOF
+,,6,*
+EOF
+    fi
+    func_rd_action test
+
+    # blank first 512 bytes of our new partition for DOS compatability
+    func_rd_action m "Blanking first 512 bytes of FAT partition..."
+    dd if=/dev/zero of=${rd_target}1 bs=512 count=1 >>$rd_log 2>&1
+    func_rd_action test
+
+    # make sure we have a DOS MBR
+    func_rd_action m "Installing master boot record..."
+    [ -f $rd_mbr ] && dd if=$rd_mbr of=$rd_target bs=446 count=1 >>$rd_log 2>&1
+    func_rd_action test
+
+    # create the dos filesystem
+    func_rd_action m "Creating FAT12 filesystem..."
+    if [ $rd_size_avail -lt 16000 ]; then
+        # we do a FAT12 filesystem
+        mkdosfs -F 12 ${rd_target}1 >>$rd_log 2>&1
+    else
+        # we do a FAT16 filesystem
+        mkdosfs -F 16 ${rd_target}1 >>$rd_log 2>&1
+    fi
+    func_rd_action test
+
+    # install the bootloader
+    func_rd_action m "Installing syslinux bootloader..."
+    syslinux ${rd_target}1
+    func_rd_action test
+
+    # mount target
+    func_rd_action m "Mounting target device ${rd_target}1..."
+    mount -t msdos ${rd_target}1 $rd_mount
+    func_rd_action test
+
+    # copy files
+    func_rd_action m "Copying the ramdisk..."
+    cp -f $rd_tmp/$rd_ramdisk $rd_mount/$rd_ramdisk
+    func_rd_action test
+    func_rd_action m "Copying kernel..."
+    cp -f $rd_projectroot/boot/$rd_kernel $rd_mount/$rd_kernel
+    func_rd_action test
+
+    # create syslinux.cfg
+    # lets amend the ramdisk size and make sure the kernel
+    # will boot the ramdisk without complaining
+    func_rd_action m "Creating syslinux.cfg..."
+    rd_bp_kernel=$rd_kernel
+    rd_bp_initrd=$rd_ramdisk
+    rd_bp_root=/dev/ram
+    rd_bp_rd=$((rd_size_fs + rd_bp_rd_margin))
+    func_rd_boot_syslinux > $rd_mount/syslinux.cfg
+    func_rd_action test
+
+    # optionally we create the config.tgz file from config.lst
+
+    # unmount target
+    func_rd_action m "Unmounting target device ${rd_target}1..."
+    umount ${rd_target}1
+    func_rd_action test
+    
+    # clean up
+    rm -f $rd_tmp/$rd_ramdisk
+}
+
+######################################################################
+#
+# func_rd_build_comp_rd_ext2
+#
+# This function will create a target device with a single ext2  
+# partition containing the kernel and ramdisk. The ramdisk is loaded 
+# as an initrd but permanently mounted as root fs. We use lilo as
+# bootloader.
+#
+# Chain of events:
+# ================
+#
+# 1.  Sanity check
+#   a.  Check for binaries and files
+#   b.  Make sure we have a flash device
+#   c.  Make sure no flash partition is mounted
+# 2.  Calculate
+#   b.  Ramdisk size
+# 3.  Loopback
+#   a.  Create loopback device
+#   b.  Format loopback device
+# 4.  Mount loopback device
+# 5.  Copy files to loopback device
+# 6.  Create library loader cache
+# 7.  Unmount loopback device
+# 8.  Create compressed ramdisk from loopback device
+# 9.  Free loopback device and remove loopback file
+# 10. Calculate
+#   a.  Available space
+#   b.  Ramdisk size
+#   c.  Kernel size
+#   d.  Check if it fits
+# 11  Create partition on flashdrive
+# 12. Create ext2 filesystem
+# 13. Mount flash drive
+# 14. Copy ramdisk image
+# 15. Copy kernel image
+# 16. Copy boot.b
+# 17. Create lilo.conf on flash device
+# 18. Run lilo
+# 19. Create config.tgz on flash and copy config.lst (optional)
+# 20. Unmount flash device
+# 21. Remove obsolete files from temporay holding area
+#
+
+func_rd_build_comp_rd_ext2 () {
+
+    # sanity check
+    func_rd_sanity || return 1
+
+    # determine filesystem size (w/o kernel)
+    rd_size_fs=`du -s -k --exclude=$rd_kernel $rd_projectroot | cut -f 1`
+    # add free space
+    rd_size_fs=$((rd_size_fs + rd_ramdisk_free))
+
+    # create loopback and format
+    func_rd_make_loopback $rd_size_fs || return 1
+
+    # mount loopback
+    func_rd_action m "Mounting loopback device..."
+    mount -t ext2 $rd_loop_dev $rd_mount
+    func_rd_action test || return 1
+
+    # remove the lost+found directory
+    rm -rf $rd_mount/lost+found
+
+    # copy files using tar since tar makes it easy to exclude things
+    func_rd_action m "Copying files to loopback device..."
+    tar cp \
+        --exclude=$rd_kernel \
+        --directory=$rd_projectroot ./ | tar xp --directory=$rd_mount
+    if [ "$?" = "0" ]; then
+        func_rd_action s
+    else
+        func_rd_action w
+    fi
+
+    # add fstab and rc.init
+
+    # make some noise
+    func_rd_action m "Creating fstab and rc.init..."
+
+    # see if we're allowed to
+    if [ "$rd_initscripts" = "y" ]; then
+
+        # lets do it!
+        func_rd_fstab_comp_rd_ext2 > $rd_mount/etc/fstab
+        func_rd_init_rd > $rd_mount/rc.init
+
+        # make sure rc.init is executable
+        chmod 755 $rd_mount/rc.init
+
+        # send the ok
+        func_rd_action s
+    else
+
+        # duh we're not configured print a warning
+        func_rd_action w
+    fi
+
+    # fix inittab
+    func_rd_fix_inittab etc
+
+    # run library loader and include XFree86 lib directory
+    func_rd_action m "Building ld.so.cache..."
+    ldconfig -v -r $rd_mount /usr/X11R6/lib >>$rd_log 2>&1
+    func_rd_action test
+
+    # unmount loopback
+    func_rd_action m "Unmounting loopback device..."
+    umount $rd_loop_dev
+    func_rd_action test
+
+    # compress the ramdisk
+    func_rd_action m "Compressing $rd_loop_dev into $rd_ramdisk..."
+    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs | gzip -v9 > $rd_tmp/$rd_ramdisk } >>$rd_log 2>&1
+    func_rd_action test
+
+    # free the loopback device
+    func_rd_break_loopback
+
+    # calculate size
+    func_rd_action m "Determining space on target device..."
+    # get flash size
+    rd_size_avail=`sfdisk -s $rd_target`
+    # get ramdisk size
+    rd_size_ramdisk=`du -s -k $rd_tmp/$rd_ramdisk | cut -f 1`
+    # get kernel size
+    rd_size_kernel=`du -s -k $rd_projectroot/boot/$rd_kernel | cut -f 1`
+
+    # Do we have enough room?
+    if [ $((rd_size_kernel + rd_size_ramdisk + rd_size_margin)) -ge $rd_size_avail ]; then
+        func_rd_action f
+        echo "  +Available Space: $rd_size_avail"
+        echo "  +Required Space:  $((rd_size_kernel + rd_size_ramdisk + rd_size_margin))"
+        return 1
+    else
+        func_rd_action s
+    fi
+
+    # fdisk target device
+    func_rd_action m "Partition traget device $rd_target..."
+    sfdisk $rd_target >>$rd_log 2>&1 <<-EOF
+,,83,*
+EOF
+    func_rd_action test
+
+    # create the ext2 filesystem
+    func_rd_action m "Creating ext2 filesystem..."
+    mke2fs -i 8192 -b 4096 -m0 ${rd_target}1 >>$rd_log 2>&1
+    func_rd_action test
+    sleep 1
+
+    # mount target
+    func_rd_action m "Mount the target device ${rd_target}1..."
+    mount -t ext2 ${rd_target}1 $rd_mount
+    func_rd_action test
+
+    # remove the lost+found directory
+    rm -rf $rd_mount/lost+found
+
+    # copy files
+    func_rd_action m "Copying ramdisk, kernel and boot.b..."
+    cp -f $rd_tmp/$rd_ramdisk $rd_mount/$rd_ramdisk
+    cp -f $rd_projectroot/boot/$rd_kernel $rd_mount/$rd_kernel
+    cp -f $rd_bootb $rd_mount/boot.b
+    func_rd_action test
+
+    # create lilo.conf
+    func_rd_action m "Creating lilo.conf in a temporary location..."
+    # lets amend the ramdisk size and make sure the kernel
+    # will boot the ramdisk without complaining
+    rd_bp_initrd=$rd_mount/$rd_ramdisk
+    rd_bp_root=/dev/ram0
+    rd_bp_rd=$((rd_size_fs + rd_bp_rd_margin))
+    func_rd_boot_lilo > $rd_tmp/lilo.conf
+    func_rd_action test
+
+    # run lilo
+    func_rd_action m "Installing lilo bootloader..."
+    lilo -v -C $rd_tmp/lilo.conf >>$rd_log 2>&1
+    func_rd_action test
+
+    # optionally we create the config.tgz file from config.lst
+
+    # unmount target
+    func_rd_action m "Unmounting target device ${rd_target}1..."
+    umount ${rd_target}1
+    func_rd_action test
+
+    # clean up
+}
+
+######################################################################
+#
+# func_rd_build_uncomp_rd_fat
+#
+# This function will create a target device with 2 partitions. 
+#
+# The first partition is a small FAT partition just large enough to 
+# hold the syslinux bootloader, a syslinux.cfg configuration file, 
+# the kernal and an initrd.
+#
+# The second partition is sized to contain the root filesystem and
+# free space as configured.
+#
+# The advantage of using fat is that no specially patched lilo is
+# required for a DOC install. Having two partitions shaves a bit of
+# room of the ramdisk since there is no need for the kernel to be
+# included in the ramdisk being loaded by the initrd and mounted
+# by the kernel as root fs.
+#
+# Chain of events:
+# ================
+#
+# 1.  Sanity Checks
+#   a.  Check for binaries and files
+#   b.  Make sure we have a flash device
+#   c.  Make sure no flash partition is mounted
+# 2.  Create initrd
+# 3.  Calculate
+#   a.  Available space
+#   b.  Root filesystem size
+#   c.  Create syslinux.cfg
+#   d.  Boot Partition size
+#   e.  Check if things will fit
+# 4.  Partition target device
+# 5.  Create FAT filesystem
+# 6.  Create ext2 filesystem
+# 7.  Install syslinux bootloader
+# 8.  Mount boot partition
+# 9.  Copy kernel, initrd, initrd, syslinux.cfg
+# 10. Unmount boot partition
+# 11. Mount ext2 filesystem
+# 12. Copy root fs excluding kernel
+# 13. Run ldconfig to build ld.so.cache
+# 14. Unmount root fs
+# 15. Remove temporary files
+#
+
+func_rd_build_uncomp_rd_fat () {
+
+    # sanity check
+    func_rd_sanity || return 1
+
+    # get flash size
+    rd_size_avail=`sfdisk -s $rd_target`
+    
+    # create the linuxrc script that initrd needs
+    func_rd_action m "Creating linuxrc..."
+    func_rd_linuxrc_uncomp_rd > $rd_tmp/linuxrc
+    func_rd_action test
+
+    # build the initrd and store temporarily
+    func_rd_boot_initrd || return 1
+
+    # determine the root filesystem size
+    # get the fs size
+    rd_size_fs=`du -s -k --exclude=$rd_kernel $rd_projectroot | cut -f 1`
+    # add the desired free space
+    rd_size_fs=$((rd_size_fs + rd_ramdisk_free))
+
+    # create syslinux.cfg
+    func_rd_action m "Creating syslinux.cfg..."
+    # lets amend the ramdisk size and make sure the kernel
+    # will boot the ramdisk without complaining
+    rd_bp_kernel=$rd_kernel
+    rd_bp_initrd=$rd_initrd
+    rd_bp_root=/dev/ram2
+    rd_bp_rd=$((rd_size_fs + rd_bp_rd_margin))
+    func_rd_boot_syslinux > $rd_tmp/syslinux.cfg
+    func_rd_action test
+    
+    # determine boot partition size
+    func_rd_action m "Determining space on target device..."
+    # get the kernel size
+    rd_size_boot=`du -s -k $rd_projectroot/boot/$rd_kernel | cut -f 1`
+    # add the initrd
+    rd_size_boot=$((rd_size_boot + `du -s -k $rd_tmp/$rd_initrd | cut -f 1`))
+    # add the bootloader
+    rd_size_boot=$((rd_size_boot + `du -s -k $rd_bin/ldlinux.sys | cut -f 1`))
+    # add the syslinux.cfg file
+    rd_size_boot=$((rd_size_boot + `du -s -k $rd_tmp/syslinux.cfg | cut -f 1`))
+    # add a few kB for a margin 
+    rd_size_boot=$((rd_size_boot + rd_size_boot_margin))
+
+    ##########
+    #
+    # Note:  sfdisk is screwy when it comes to creating partitions
+    #        based on blocks. Specifying in MB seems to work alright.
+    #
+    #        The solution... calculate sizes in MB. Since bash truncates
+    #        floating point numbers at we add 1 to round up at all times.
+    #        Except for the available space... we don't want to oversize!
+    #
+    #        The rd_size_boot_margin is taken off sinze we're rounding
+    #        up anyways. Hopefully there'll be a fix for this soon!
+    #
+
+    rd_size_fs=$((rd_size_fs / 1024 + 1))
+    rd_size_boot=$((rd_size_boot - rd_size_boot_margin))
+    rd_size_boot=$((rd_size_boot / 1024 + 1))
+    rd_size_avail=$((rd_size_avail / 1024))
+
+    #
+    ##########
+
+    # check if things will fit
+    if [ $((rd_size_fs + rd_size_boot)) -gt $rd_size_avail ]
+    then
+        func_rd_action f
+        echo "  +Available Space: $rd_size_avail"
+        echo "  +Required Space:  $((rd_size_fs + rd_size_boot))"
+        return 1
+    else
+        func_rd_action s
+    fi
+
+    # partition our target device
+    func_rd_action m "Partitioning target davice $rd_target..."
+    # /dev/hda1 will be a FAT12 partition
+    # /dev/hda2 will be a ext2 partition
+    # both partitions sized per previous calculations
+    sfdisk -uM $rd_target >>$rd_log 2>&1 <<-EOF
+,${rd_size_boot},1,*
+,${rd_size_fs},83
+;
+EOF
+    func_rd_action test
+
+    # blank first 512 bytes of our new partition for DOS compatability
+    func_rd_action m "Blanking first 512 bytes of ${rd_target}1..."
+    dd if=/dev/zero of=${rd_target}1 bs=512 count=1 >>$rd_log 2>&1
+    func_rd_action test
+
+    # make sure we have a DOS MBR
+    func_rd_action m "Installing master boot record..."
+    [ -f $rd_mbr ] && dd if=$rd_mbr of=$rd_target bs=446 count=1 >>$rd_log 2>&1
+    func_rd_action test
+
+    # create the fat filesystem
+    func_rd_action m "Creating fat filesystem on ${rd_target}1..."
+    mkdosfs -F 12 ${rd_target}1 >>$rd_log 2>&1
+    func_rd_action test
+
+    # create ext2 filesystem
+    func_rd_action m "Creating ext2 filesystem on ${rd_target}2..."
+    mke2fs -b 1024 -m0 ${rd_target}2 >>$rd_log 2>&1
+    func_rd_action test
+
+    # install the bootloader
+    func_rd_action m "Installing syslinux bootloader..."
+    syslinux ${rd_target}1
+    func_rd_action test
+
+    # mount our boot partition
+    func_rd_action m "Mounting boot partition ${rd_target}1..."
+    mount -t msdos ${rd_target}1 $rd_mount
+    func_rd_action test
+
+    # copy initrd, syslinux.cfg and kernel
+    func_rd_action m "Copying file to boot partition..."
+    cp -f $rd_tmp/$rd_initrd $rd_mount/$rd_initrd
+    cp -f $rd_tmp/syslinux.cfg $rd_mount/syslinux.cfg
+    cp -f $rd_projectroot/boot/$rd_kernel $rd_mount/$rd_kernel
+    func_rd_action test
+
+    # unmount boot partition
+    func_rd_action m "Unmounting boot partition ${rd_target}1..."
+    umount ${rd_target}1
+    func_rd_action test
+
+    # mount root filesystem
+    func_rd_action m "Mounting root filesystem ${rd_target}2..."
+    mount -t ext2 ${rd_target}2 $rd_mount
+    func_rd_action test
+
+    # remove lost+found
+    rm -rf $rd_mount/lost+found
+
+    # copy files using tar since tar makes it easy to exclude things
+    func_rd_action m "Copying root filesystem to ${rd_target}2..."
+    tar cp \
+        --exclude=$rd_kernel \
+        --directory=$rd_projectroot ./ | tar xp --directory=$rd_mount
+    func_rd_action test
+
+    # add fstab and rc.init
+
+    # make some noise
+    func_rd_action m "Creating fstab and rc.init..."
+
+    # see if we're allowed to
+    if [ "$rd_initscripts" = "y" ]; then
+
+        # lets do it!
+        func_rd_fstab_uncomp_rd > $rd_mount/etc/fstab
+        func_rd_init_rd > $rd_mount/rc.init
+
+        # make sure rc.init is executable
+        chmod 755 $rd_mount/rc.init
+
+        # send the ok
+        func_rd_action s
+    else
+
+        # duh we're not configured print a warning
+        func_rd_action w
+    fi
+
+    # fix inittab
+    func_rd_fix_inittab etc
+
+    # run library loader and include XFree86 lib directory
+    func_rd_action m "Creating ld.so.cache..."
+    ldconfig -v -r $rd_mount /usr/X11R6/lib >>$rd_log 2>&1
+    func_rd_action test
+
+    # unmount the root partition
+    func_rd_action m "Unmounting the root partition ${rd_target}2..."
+    umount ${rd_target}2
+    func_rd_action test
+
+}
+
+######################################################################
+#
+# func_rd_build_uncomp_rd_ext2
+#
+# This function will create a target device with 2 partitions.
+#
+# The first partition is a small ext2 partition just large enough to
+# hold the kernel, initrd and lilo related files.
+#
+# The second partition is sized to contain the root filesystem and
+# free space as configured.
+#
+# Having two partitions shaves a bit of room of the ramdisk since 
+# there is no need for the kernel to be included in the ramdisk being 
+# loaded by the initrd and mounted by the kernel as root fs.
+#
+# Chain of events:
+# ================
+#
+# 1.  Sanity Checks
+#   a.  Check for binaries and files
+#   b.  Make sure we have a flash device
+#   c.  Make sure no flash partition is mounted
+# 2.  Create initrd
+# 3.  Calculate
+#   a.  Available space
+#   b.  Root filesystem size
+#   c.  Create syslinux.cfg
+#   d.  Boot Partition size
+#   e.  Check if things will fit
+# 4.  Partition target device
+# 5.  Create ext2 filesystems
+# 6.  Mount boot partition
+# 7.  Copy kernel, initrd
+# 8.  Install lilo
+# 9.  Unmount boot partition
+# 10. Mount ext2 filesystem
+# 11. Copy root fs excluding kernel
+# 12. Run ldconfig to build ld.so.cache
+# 13. Unmount root fs
+# 14. Remove temporary files
+#
+
+func_rd_build_uncomp_rd_ext2 () {
+
+    # sanity check
+    func_rd_sanity || return 1
+
+    # get flash size
+    rd_size_avail=`sfdisk -s $rd_target`
+
+    # create the linuxrc script that initrd needs
+    func_rd_action m "Creating linuxrc..."
+    func_rd_linuxrc_uncomp_rd > $rd_tmp/linuxrc
+    func_rd_action test
+
+    # build the initrd and store temporarily
+    func_rd_boot_initrd || return 1
+
+    # determine the root filesystem size
+    # get the fs size
+    rd_size_fs=`du -s -k --exclude=$rd_kernel $rd_projectroot | cut -f 1`
+    # add the desired free space
+    rd_size_fs=$((rd_size_fs + rd_ramdisk_free))
+
+    # create lilo.conf
+    func_rd_action m "Creating lilo.conf..."
+    # lets amend the ramdisk size and make sure the kernel
+    # will boot the ramdisk without complaining
+    rd_bp_initrd=$rd_mount/$rd_initrd
+    rd_bp_root=/dev/ram2
+    rd_bp_rd=$((rd_size_fs + rd_bp_rd_margin))
+    func_rd_boot_lilo > $rd_tmp/lilo.conf
+    func_rd_action test
+   
+    # determine boot partition size
+    func_rd_action m "Determining space on target device..."
+    # get the kernel size
+    rd_size_boot=`du -s -k $rd_projectroot/boot/$rd_kernel | cut -f 1`
+    # add the initrd
+    rd_size_boot=$((rd_size_boot + `du -s -k $rd_tmp/$rd_initrd | cut -f 1`))
+    # add the bootloader
+    rd_size_boot=$((rd_size_boot + `du -s -k $rd_bootb | cut -f 1`))
+    # add a few kB for a margin
+    rd_size_boot=$((rd_size_boot + rd_size_boot_margin))
+
+    ##########
+    #
+    # Note:  sfdisk is screwy when it comes to creating partitions
+    #        based on blocks. Specifying in MB seems to work alright.
+    #
+    #        The solution... calculate sizes in MB. Since bash truncates
+    #        floating point numbers at we add 1 to round up at all times.
+    #        Except for the available space... we don't want to oversize!
+    #
+    #        The rd_size_boot_margin is taken off sinze we're rounding
+    #        up anyways. Hopefully there'll be a fix for this soon!
+    #
+
+    rd_size_fs=$((rd_size_fs / 1024 + 1))
+    rd_size_boot=$((rd_size_boot - rd_size_boot_margin))
+    rd_size_boot=$((rd_size_boot / 1024 + 1))
+    rd_size_avail=$((rd_size_avail / 1024))
+
+    #
+    ##########
+
+    # check if things will fit
+    if [ $((rd_size_fs + rd_size_boot)) -gt $rd_size_avail ]
+    then
+        func_rd_action f
+        echo "  +Available Space: $rd_size_avail"
+        echo "  +Required Space:  $((rd_size_fs + rd_size_boot))"
+        return 1
+    else
+        func_rd_action s
+    fi
+
+    # partition our target device
+    func_rd_action m "Partitioning target davice $rd_target..."
+    # /dev/hda1 will be a fat16 partition
+    # /dev/hda2 will be a ext2 partition
+    # both partitions sized per previous calculations
+    sfdisk -uM $rd_target >>$rd_log 2>&1 <<-EOF
+,${rd_size_boot},83,*
+,${rd_size_fs},83
+;
+EOF
+    func_rd_action test
+
+    # create ext2 filesystems
+    func_rd_action m "Creating ext2 filesystem on ${rd_target}1..."
+    mke2fs -b 4096 -m0 ${rd_target}1 >>$rd_log 2>&1
+    func_rd_action test
+    func_rd_action m "Creating ext2 filesystem on ${rd_target}2..."
+    mke2fs -b 1024 -m0 ${rd_target}2 >>$rd_log 2>&1
+    func_rd_action test
+
+    # processing partition 1
+
+    # mount our boot partition
+    func_rd_action m "Mounting boot partition ${rd_target}1..." 
+    mount -t ext2 ${rd_target}1 $rd_mount
+    func_rd_action test
+
+    # remove lost+found
+    rm -rf $rd_mount/lost+found
+
+    # copy initrd, boot.b and kernel
+    func_rd_action m "Copying file to boot partition..."
+    cp -f $rd_tmp/$rd_initrd $rd_mount/$rd_initrd
+    cp -f $rd_bootb $rd_mount/boot.b
+    cp -f $rd_projectroot/boot/$rd_kernel $rd_mount/$rd_kernel
+    func_rd_action test
+
+    # run lilo
+    func_rd_action m "Installing the lilo bootloader..."
+    lilo -v -C $rd_tmp/lilo.conf >>$rd_log 2>&1
+    func_rd_action test
+
+    # unmount boot partition
+    func_rd_action m "Unmounting boot partition ${rd_target}1..."
+    umount ${rd_target}1
+    func_rd_action test
+
+    # processing partition 2
+
+    # mount root filesystem
+    func_rd_action m "Mounting root partition ${rd_target}2..."
+    mount -t ext2 ${rd_target}2 $rd_mount
+    func_rd_action test
+
+    # remove lost+found
+    rm -rf $rd_mount/lost+found
+
+    # copy files using tar since tar makes it easy to exclude things
+    func_rd_action m "Copying root filesystem to ${rd_target}2..."
+    tar cp \
+        --exclude=$rd_kernel \
+        --directory=$rd_projectroot ./ | tar xp --directory=$rd_mount
+    func_rd_action test
+
+    # add fstab and rc.init
+
+    # make some noise
+    func_rd_action m "Creating fstab and rc.init..."
+
+    # see if we're allowed to
+    if [ "$rd_initscripts" = "y" ]; then
+
+        # lets do it!
+        func_rd_fstab_uncomp_rd > $rd_mount/etc/fstab
+        func_rd_init_rd > $rd_mount/rc.init
+
+        # make sure rc.init is executable
+        chmod 755 $rd_mount/rc.init
+
+        # send the ok
+        func_rd_action s
+    else
+
+        # duh we're not configured print a warning
+        func_rd_action w
+    fi
+
+    # fix inittab
+    func_rd_fix_inittab etc
+
+    # run library loader and include XFree86 lib directory
+    func_rd_action m "Creating ld.so.cache..."
+    ldconfig -v -r $rd_mount /usr/X11R6/lib >>$rd_log 2>&1
+    func_rd_action test
+
+    # unmount the root partition
+    func_rd_action m "Unmounting the root partition ${rd_target}2..."
+    umount ${rd_target}2
+    func_rd_action test
+
+}
+
+######################################################################
+#
+# func_rd_build_ro_root_rd
+#
+# This function will create a target device with a large root
+# partition. The /etc, /dev and /home aprtitions are stored
+# in compressed ramdisks. 
+#
+# The /root directory is linked to /home/root. The /tmp and /var
+# directories are linked to /dev/var and /dev/var/tmp respectively.
+#
+# Chain of events:
+# ================
+#
+# 1.  Sanity Checks
+#   a.  Check for binaries and files
+#   b.  Make sure we have a flash device
+#   c.  Make sure no flash partition is mounted
+# 2.  Create initrd
+# 3.  Calculate
+#   a.  /dev filesystem size
+#   b.  /etc filesystem size
+# 4.  Create /dev ramdisk
+#   a.  Create loopback device
+#   b.  Mount loop device
+#   c.  Copy files
+#   d.  Unmount loop device
+#   e.  Compress loop device into a ramdisk
+#   f.  Decomission loop device
+# 5.  Create /etc ramdisk
+#       Just like the /dev ramdisk
+#       Except relocate ld.so.cache
+# 7.  Calculate
+#   a.  Available space
+#   b.  Root partition including kernel, boot.b and ramdisks
+#   c.  Home partition
+#   d.  See if things fit
+# 8.  Partition target device
+#   a.  /
+#   b.  /home
+#   c.  /mnt/flash
+# 9.  Create filesystems on target partitions
+# 10. Mount partitions
+#   a.  Mount /
+#   b.  Create /dev, /etc, /home and /mnt/flash
+#   c.  Create /tmp and /var symlinks
+#   d.  Mount /home
+#   e.  Mount /mnt/flash
+# 11. Copy files except for /dev, /etc, /tmp, /var
+# 12. Copy files necessary for booting in /dev, /etc, /var
+# 13. Run ldconfig
+# 14. Bootloader
+#   a.  copy boot.b
+#   b.  create lilo.conf
+#   c.  run lilo
+# 15. Unmount all partitions
+# 16. Remove temporary files
+
+
+func_rd_build_ro_root_rd () {
+
+    # sanity check
+    func_rd_sanity || return 1
+
+    # create the linuxrc script that initrd needs
+    func_rd_action m "Creating linuxrc..."
+    func_rd_linuxrc_ro_root_rd > $rd_tmp/linuxrc
+    func_rd_action test
+
+    # build the initrd and store temporarily
+    func_rd_boot_initrd || return 1
+
+    # calculate the /dev filesystem size
+    rd_size_fs_var=`du -s -k --exclude=$rd_kernel $rd_projectroot/var | cut -f 1`
+    rd_size_fs_dev=`du -s -k --exclude=$rd_kernel $rd_projectroot/dev | cut -f 1`
+    rd_size_fs_dev=$((rd_size_fs_dev + rd_size_fs_var))
+    rd_size_fs_dev=$((rd_size_fs_dev + rd_dev_free))
+
+    # calculate the /etc filesystem size
+    rd_size_fs_etc=`du -s -k --exclude=$rd_kernel $rd_projectroot/etc | cut -f 1`
+    rd_size_fs_etc=$((rd_size_fs_etc + rd_etc_free))
+
+    # create the dev ramdisk
+    # create loopback device
+    func_rd_make_loopback $rd_size_fs_dev 1024
+
+    # mount loop device
+    func_rd_action m "Mounting loopback device for /dev filesystem..."
+    mount -t ext2 $rd_loop_dev $rd_mount
+    func_rd_action test
+
+    # remove lost+found
+    rm -rf $rd_mount/lost+found
+
+    # copy files nothing to exclude might as well use cp -a
+    func_rd_action m "Copying files..."
+    cp -a $rd_projectroot/dev/* $rd_mount
+
+    # remember we need to copy /var here too!
+    mkdir -p $rd_mount/var
+    cp -a $rd_projectroot/var/* $rd_mount/var
+    func_rd_action test
+
+    # unmount loop device
+    func_rd_action m "Unmounting loopback device..."
+    umount $rd_loop_dev
+    func_rd_action test
+
+    # compress the loop device into a ramdisk
+    func_rd_action m "Compressing loopback device into ramdisk.dev..."
+    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs_dev | gzip -v9 > $rd_tmp/ramdisk.dev } >>$rd_log 2>&1
+    func_rd_action test
+
+    # decomission ramdisk
+    func_rd_break_loopback
+
+    # create the etc ramdisk
+    # create loopback device
+    func_rd_make_loopback $rd_size_fs_etc 1024
+
+    # mount loop device
+    func_rd_action m "Mounting loopback device for /etc filesystem..."
+    mount -t ext2 $rd_loop_dev $rd_mount
+    func_rd_action test
+
+    # remove lost+found
+    rm -rf $rd_mount/lost+found
+
+    # copy files nothing to exclude might as well use cp -a
+    func_rd_action m "Copying files..."
+    cp -a $rd_projectroot/etc/* $rd_mount
+
+    # relocate the ld.so.cahe to /lib/ld.so.cache
+    rm -f $rd_mount/etc/ld.so.cache
+    ln -sf /lib/ld.so.cache $rd_mount/ld.so.cache
+    func_rd_action test
+
+    # add fstab
+
+    # make some noise
+    func_rd_action m "Creating fstab..."
+
+    # see if we're allowed to
+    if [ "$rd_initscripts" = "y" ]; then
+
+        # lets do it!
+        func_rd_fstab_ro_root_rd > $rd_mount/fstab
+
+        # send the ok
+        func_rd_action s
+    else
+
+        # duh we're not configured print a warning
+        func_rd_action w
+    fi
+
+    # fix inittab
+    func_rd_fix_inittab
+
+    # unmount loop device
+    func_rd_action m "Unmounting loopback device..."
+    umount $rd_loop_dev
+    func_rd_action test
+
+    # compress the loop device into a ramdisk
+    func_rd_action m "Compressing loopback device into ramdisk.etc..."
+    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs_etc | gzip -v9 > $rd_tmp/ramdisk.etc } >>$rd_log 2>&1
+    func_rd_action test
+
+    # decomission ramdisk
+    func_rd_break_loopback
+
+    # get flash size
+    func_rd_action m "Determining space on target device..."
+    rd_size_avail=`sfdisk -s $rd_target`
+
+    # calculate the required root fs space
+    rd_size_fs=`du -s -k $rd_projectroot | cut -f 1`
+    # add the ramdisk sizes
+    rd_size_fs=$((rd_size_fs + `du -s -k $rd_tmp/ramdisk.dev | cut -f 1`))
+    rd_size_fs=$((rd_size_fs + `du -s -k $rd_tmp/ramdisk.etc | cut -f 1`))
+    # add the bootloader
+    rd_size_fs=$((rd_size_fs + `du -s -k $rd_bootb | cut -f 1`))
+    # add a few kB for a margin
+    rd_size_fs=$((rd_size_fs + rd_size_boot_margin))
+
+    # calculate the home partition size
+    rd_size_home=`du -s -k $rd_projectroot/home | cut -f 1`
+    # add /root
+    rd_size_home=$((rd_size_home + `du -s -k $rd_projectroot/root | cut -f 1`))
+    # add the desired free space
+    rd_size_home=$((rd_size_home + rd_home_free))
+
+    ##########
+    #
+    # Note:  sfdisk is screwy when it comes to creating partitions
+    #        based on blocks. Specifying in MB seems to work alright.
+    #
+    #        The solution... calculate sizes in MB. Since bash truncates
+    #        floating point numbers at we add 1 to round up at all times.
+    #        Except for the available space... we don't want to oversize!
+    #
+    #        The rd_size_boot_margin is taken off sinze we're rounding
+    #        up anyways. Hopefully there'll be a fix for this soon!
+    #
+
+    rd_size_fs=$((rd_size_fs - rd_size_boot_margin))
+    rd_size_fs=$((rd_size_fs / 1024 + 1))
+    rd_size_home=$((rd_size_home / 1024 + 1))
+    rd_size_avail=$((rd_size_avail / 1024))
+
+    #
+    ##########
+
+    # check if things will fit
+    # also take our /home partition into consideration
+    if [ $((rd_size_fs + rd_size_home)) -gt $rd_size_avail ]
+    then
+        func_rd_action f
+        echo "  +Available Space: $rd_size_avail"
+        echo "  +Required Space:  $((rd_size_fs + rd_size_home))"
+        return 1
+    else
+        func_rd_action s
+    fi
+
+    # partition our target device
+    func_rd_action m "Partitioning target davice $rd_target..."
+    # /dev/hda1 will be a ext2 partition
+    # /dev/hda2 will be a ext2 partition
+    # /dev/hda3 will be a ext2 partition
+    # both partitions sized per previous calculations
+    # /dev/hda3 will be what's left
+    sfdisk -uM $rd_target >>$rd_log 2>&1 <<-EOF
+,${rd_size_fs},83,*
+,${rd_size_home},83
+,,83
+;
+EOF
+    func_rd_action test
+
+    # create filesystems
+    func_rd_action m "Creating ext2 filesystem on ${rd_target}1..."
+    mke2fs -b 1024 -m0 ${rd_target}1 >>$rd_log 2>&1
+    func_rd_action test
+    func_rd_action m "Creating ext2 filesystem on ${rd_target}2..."
+    mke2fs -b 1024 -m0 ${rd_target}2 >>$rd_log 2>&1
+    func_rd_action test
+    func_rd_action m "Creating ext2 filesystem on ${rd_target}3..."
+    mke2fs -b 1024 -m0 ${rd_target}3 >>$rd_log 2>&1
+    func_rd_action test
+
+    # mount /
+    func_rd_action m "Mounting root partition ${rd_target}1..."
+    mount -t ext2 ${rd_target}1 $rd_mount
+    func_rd_action test
+
+    # create mount points for partitions
+    mkdir -p $rd_mount/home
+    mkdir -p $rd_mount/mnt/flash
+
+    # create mount points for ramdisks
+    mkdir -p $rd_mount/dev
+    mkdir -p $rd_mount/etc
+
+    # mount remaining partitions
+    func_rd_action m "Mounting /home partition ${rd_target}2..."
+    mount -t ext2 ${rd_target}2 $rd_mount/home
+    func_rd_action test
+    func_rd_action m "Mounting /mnt/flash partition ${rd_target}3..."
+    mount -t ext2 ${rd_target}3 $rd_mount/mnt/flash
+    func_rd_action test
+
+    func_rd_action m "Copying files..."
+    # copy files
+    for i in $rd_projectroot/*; do
+
+        # clear the flag
+        rd_status=
+
+        # mark any directories we don't want to copy
+        for j in dev etc root tmp var; do
+            if [ `basename $i` = $j ]; then
+                rd_status=no
+            fi
+        done
+
+        # copy if we're clear
+        if [ ! $rd_status ]; then
+            cp -a $i $rd_mount 
+        fi
+    done
+
+    # copy whatever is in /root to /home/root
+    cp -a $rd_projectroot/root $rd_mount/home
+        
+    # create symlinks for our new file locations
+    ln -sf /dev/var $rd_mount/var
+    ln -sf /dev/var/tmp $rd_mount/tmp
+    ln -sf /home/root $rd_mount/root
+
+    # copy ramdisk, initrd, boot.b
+    cp -f $rd_tmp/ramdisk.dev $rd_mount/boot/ramdisk.dev
+    cp -f $rd_tmp/ramdisk.etc $rd_mount/boot/ramdisk.etc
+    cp -f $rd_tmp/$rd_initrd $rd_mount/boot/$rd_initrd
+    cp -f $rd_bootb $rd_mount/boot/boot.b
+
+    # create devices required before anything is mounted
+    cp -a $rd_projectroot/dev/console $rd_mount/dev/console
+    cp -a $rd_projectroot/dev/systty $rd_mount/dev/systty
+    cp -a $rd_projectroot/dev/null $rd_mount/dev/null
+    cp -a $rd_projectroot/dev/ram $rd_mount/dev/ram
+    cp -a $rd_projectroot/dev/ram0 $rd_mount/dev/ram0
+    for i in 1 2 3 4 5 6 7 8 9; do
+        cp -a $rd_projectroot${rd_boot}${i} ${rd_mount}${rd_boot}${i}
+        cp -a $rd_projectroot/dev/ram$i ${rd_mount}/dev/ram$i
+    done
+    for i in 0 1 2 3 4; do
+        cp -a $rd_projectroot/dev/tty$i $rd_mount/dev/tty$i
+    done
+
+    # copy our modified inittab to the root directory
+    cp -f $rd_tmp/inittab $rd_mount/etc/inittab
+    func_rd_action test
+
+    # add rc.init
+
+    # make some noise
+    func_rd_action m "Creating fstab and rc.init..."
+
+    # see if we're allowed to
+    if [ "$rd_initscripts" = "y" ]; then
+
+        # lets do it!
+        func_rd_fstab_ro_root_rd > $rd_mount/etc/fstab
+        func_rd_init_ro_root_rd > $rd_mount/rc.init
+
+        # make sure rc.init is executable
+        chmod 755 $rd_mount/rc.init
+
+        # send the ok
+        func_rd_action s
+    else
+
+        # duh we're not configured print a warning
+        func_rd_action w
+    fi
+
+    # run library loader and include XFree86 lib directory
+    # remember it's been relocated to /lib/ld.so.cache
+    func_rd_action m "Creating ld.so.cache..."
+    ldconfig -v -C /lib/ld.so.cache -r $rd_mount /usr/X11R6/lib >>$rd_log 2>&1
+    func_rd_action test
+    
+    # create lilo.conf
+    func_rd_action m "Creating lilo.conf..."
+    # lets amend the ramdisk size and make sure the kernel
+    # will boot the ramdisk without complaining
+    rd_bp_map=$rd_mount/boot/map
+    rd_bp_bootb=$rd_mount/boot/boot.b
+    rd_bp_kernel=$rd_mount/boot/$rd_kernel
+    rd_bp_initrd=$rd_mount/boot/$rd_initrd
+    rd_bp_root=${rd_boot}1
+    rd_bp_rd=20000
+    func_rd_boot_lilo > $rd_tmp/lilo.conf
+    func_rd_action test
+
+    # run lilo
+    func_rd_action m "Installing lilo bootloader..."
+    lilo -v -C $rd_tmp/lilo.conf >>$rd_log 2>&1
+    func_rd_action test
+
+    # umount partitions
+    func_rd_action m "Unmounting the /mnt/flash partition ${rd_target}3..."
+    umount ${rd_target}3
+    func_rd_action test
+
+    func_rd_action m "Unmounting the /home partition ${rd_target}2..."     
+    umount ${rd_target}2
+    func_rd_action test
+ 
+    func_rd_action m "Unmounting the / partition ${rd_target}1..."
+    umount ${rd_target}1
+    func_rd_action test
+
+}
+
+######################################################################
+#
+# func_rd_build_rw_root
+#
+# This function will create a target drive with a single large ext2
+# partition. The partition is mounted rw at all times just like a
+# normal HD.
+#
+# It's here for completeness but not recommended
+#
+
+# func_rd_build_rw_root
+
+
+
+######################################################################
+#
+# func_rd_build_fd_raw
+#
+# This function will create a embedded sytem on a floppy disk. The
+# kernel starts at block 0 and is booted by the bios. No bootloader
+# needed.
+#
+# Chain of Events:
+# ================
+#
+# 1.  Sanity Checks
+#   a.  Check for binaries and files
+#   b.  Pass floppy device as target and check
+# 2. Calculate
+#   a.  Root fs size for ramdisk size
+# 3.  Loopback
+#   a.  Create loopback device
+#   b.  Format loopback device
+# 4.  Mount loopback device
+# 5.  Copy files to loopback device
+# 6.  Create library loader cache
+# 7.  Unmount loopback device
+# 8.  Create compressed ramdisk from loopback device
+# 9.  Free loopback device
+# 10. Calculate
+#   a. Available space
+#   b. Ramdisk size
+#   c. Kernel size
+#   d. Make sure it fits
+# 11. Write kernel and bzImage to floppy
+# 
+
+func_rd_build_fd_raw () {
+
+#------------------------- Load files to temp location -----------
+    # sanity check first define our target to be the floppy drive
+    rd_target=$rd_floppy
+    func_rd_sanity || return 1
+
+    # determine root fs size
+    rd_size_fs=`du -s -k --exclude=$rd_kernel $rd_projectroot | cut -f 1`
+    rd_size_fs=$((rd_size_fs + rd_ramdisk_fd_free))
+
+    # create loopback device  
+    func_rd_make_loopback $rd_size_fs 1024 || return 1
+
+    # mount loopback device
+    func_rd_action m "Mounting loopback device...."
+    mount -t ext2 $rd_loop_dev $rd_mount
+    func_rd_action test || return 1
+
+    # copy files
+    func_rd_action m "Copying files to loopback device..."
+    tar cp \
+        --exclude=$rd_kernel \
+        --directory=$rd_projectroot ./ | tar xp --directory=$rd_mount
+    if [ "$?" = "0" ]; then
+        func_rd_action s
+    else
+        func_rd_action w
+    fi
+#-------------------- Patch config files for this Environment ------------
+
+    # add fstab and rc.init
+
+    # make some noise
+    func_rd_action m "Creating fstab and rc.init..."
+
+    # see if we're allowed to
+    if [ "$rd_initscripts" = "y" ]; then
+
+        # lets do it!
+        func_rd_fstab_floppy > $rd_mount/etc/fstab
+        func_rd_init_rd > $rd_mount/rc.init
+
+        # make sure rc.init is executable
+        chmod 755 $rd_mount/rc.init
+
+        # send the ok
+        func_rd_action s
+    else
+
+        # duh we're not configured print a warning
+        func_rd_action w
+    fi
+
+    # fix inittab
+    func_rd_fix_inittab etc
+
+    # run library loader X is not likely on a floppy
+    func_rd_action m "Building ld.so.cache..."
+    ldconfig -v -r $rd_mount >>$rd_log 2>&1
+    func_rd_action test
+    
+    # unmount the loopback device
+    func_rd_action m "Unmounting loopback device..."
+    umount $rd_loop_dev
+    func_rd_action test || return 1
+
+#--------------------- Compress All files --------------
+
+    # compress ramdisk
+    func_rd_action m "Compressing $rd_loop_dev into $rd_ramdisk..."
+    dd if=$rd_loop_dev bs=1k count=$rd_size_fs | gzip -v9 > $rd_tmp/$rd_ramdisk
+    func_rd_action test || return 1
+
+    # free loopback device
+    func_rd_break_loopback
+
+#--------------------- Verify Space ----------------------
+    # calculate space on floppy
+    func_rd_action m "Determining space on target device..."
+    rd_size_avail=`sfdisk -s $rd_target`
+    # get kernel size
+    rd_size_kernel=`du -s -k $rd_projectroot/boot/$rd_kernel | cut -f 1`
+    # get the ramdisk size
+    rd_size_ramdisk=`du -s -k $rd_tmp/$rd_ramdisk | cut -f 1`
+
+    # Do we have enough room?
+    # No safety margin here since we want to use all avialable space
+    if [ $((rd_size_kernel + rd_size_ramdisk)) -ge $rd_size_avail ]; then
+        func_rd_action f
+        echo "  +Available Space: $rd_size_avail"
+        echo "  +Required Space:  $((rd_size_kernel + rd_size_ramdisk))"
+        return 1
+    else
+        func_rd_action s
+    fi
+#--------------------- Patch kernel image -------------------------------
+
+    # put the stuff on out floppy device
+
+    # kernel
+    func_rd_action m "Copying $rd_kernel to $rd_target..."
+    { dd if=$rd_projectroot/boot/$rd_kernel of=$rd_target bs=1k } >>$rd_log 2>&1
+    func_rd_action test
+
+    # set kernel parameters
+    # we're booting from floppy
+    rdev $rd_target $rd_target
+    # load a ramdisk without prompt
+    rdev -r $rd_target $((rd_size_kernel + 16384))
+    # mount root r/w 
+    rdev -R $rd_target 0
+    # normal vga video mode
+    rdev -v $rd_target -1
+
+#--------------------- Extract to device --------------------------------
+
+    # ramdisk image
+    func_rd_action m "Copying $rd_ramdisk to $rd_target..."
+    { dd if=$rd_tmp/$rd_ramdisk of=$rd_target bs=1k seek=$rd_size_kernel } >>$rd_log 2>&1
+    func_rd_action test
+
+    sync
+
+}
+ 

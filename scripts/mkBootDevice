@@ -12,6 +12,8 @@
 #    Built for Pee Wee Linux created by Adi Linden 
 #
 # History
+#    v0.95 - option for custom lilo commands
+#    v0.91- option to specify location of lilo config files
 #    v0.9 - cleanup, allow full unmount, support for floppies
 #    v0.8 - allow erase of trashed file systems
 #    v0.7 - allow exiting on erro for mount command
@@ -30,7 +32,7 @@
 #
 #  constants for this shell script
 #
-VER=0.9
+VER=0.91
 #
 [ -z "$COLUMNS" ] && COLUMNS=80
 RES_COL=40
@@ -57,9 +59,10 @@ RDEV=/usr/sbin/rdev
 #
 #  Lilo will depend on type of device selected (DOC uses patched lilo)
 #
-[ -z "$PLILO" ] && PLILO=./bin/lilo
-[ ! -f "$PLILO" ] && PLILO=./bin/lilo
+# [ -z "$PLILO" ] && PLILO=./bin/lilo
+# [ ! -f "$PLILO" ] && PLILO=./bin/lilo
 DOC_LILO=./bin/Lilo6_21
+PLILO="lilo"
 
 #---------------------------------------------------
 #
@@ -161,8 +164,10 @@ function BD_Usage()
    echo "   -m   Mount device at mount point"
    echo ""
    echo "  options:"
-   echo "   --device    name of device node file - i.e. /dev/xxx"
-   echo "               (see default for each device)"
+   echo "   --custom       specify a custom lilo command statement"
+   echo "   --custom-image specify a custom lilo image statement"
+   echo "   --device       name of device node file - i.e. /dev/xxx"
+   echo "                    (see default for each device)"
    echo "   --label     when Formatting device, use this label to prompt user"
    echo "               defaults to the name of the kernel file"
    echo "   --kernel    name of kernel file used for booting device"
@@ -258,14 +263,17 @@ function BD_Mounted()
 #
 function BD_Unmount()
 {
+   # make sure to trash the cash
+   #
+   sync ; sync
    #
    # unmount device it in case it was previously mounted elsewhere
    #
-   umount $BD_DEV$BD_ID |tee -a $BD_LOG
+   umount $BD_DEV$BD_ID 2> /dev/null |tee -a $BD_LOG
    #
    # unmount mount point in case somebody else is mounting it - how crude
    #
-   umount $BD_MNT       |tee -a $BD_LOG
+   umount $BD_MNT       2> /dev/null |tee -a $BD_LOG
 }
 
 #
@@ -319,6 +327,7 @@ function Lilo_Verify()
       [ ! -e "$BD_DEV""$BD_ID" ] && BD_Usage "Device not found: $BD_DEV$BD_ID"
       [ ! -f "$BD_MNT""$BD_BOOT_FN" ] && BD_Usage "Boot Record not found:  $BD_MNT$BD_BOOT_FN"
       [ ! -f "$BD_MNT"/$BD_KERNEL ] && BD_Usage "Kernel file not found: $BD_KERNEL"
+      [ ! -f "$LILO_FILE"  ] && BD_Usage "Lilo configuration file not found $LILO_FILE"
    #
    # lilo complains if anyone else can write the file
    # change to readonly
@@ -375,7 +384,7 @@ function BD_Lilo_conf()
 {
    $decho "start BD_Lilo_conf"
    #
-   LILO_FILE=lilo.conf.$devType
+   LILO_FILE="$BD_LILO_PATH"/lilo.conf.$devType
    if [ -f "$LILO_FILE" ]; then
       #
       # allow manual configuration, don't change it!
@@ -401,11 +410,13 @@ function BD_Lilo_conf()
 	install=$BD_MNT$BD_BOOT_FN       # use boot.b file found here
 	prompt                           # show LILO prompt
 	timeout=50                       # for 5 seconds
+        $BD_CUSTOM
 
 	image=$BD_MNT$BD_KERNEL          # use this image
 	      label=$BD_LABEL            # called this
 	      root=$BD_ROOT_DEV          # found here when we boot
 	      read-only                  # mount read-only to run fsck
+              $BD_CUSTOM_IMAGE
 	EOF
    #
 }
@@ -418,8 +429,8 @@ function BD_Dual_Boot()
 {
    $decho "start BD_Dual_Boot"
    #
-   LILO_FILE=lilo.conf.DUAL.$devType
-   if [ ! -f "$PLILO" ]; then
+   LILO_FILE=$BD_LILO_PATH/lilo.conf.DUAL.$devType
+   if ! which "$PLILO" > /dev/null 2> /dev/null ;  then
       echo ""
       echo "Lilo not found: $PLILO"
       echo ""
@@ -449,6 +460,7 @@ function BD_Dual_Boot()
 	      label=$BD_LABEL            # called this
 	      root=$BD_ROOT_DEV          # found here when we boot
 	      read-only                  # mount read-only to run fsck
+              $BD_CUSTOM_IMAGE 
 	EOF
    #
    Lilo_Verify
@@ -462,8 +474,8 @@ function BD_Dual_Boot()
 function BD_Boot() 
 {
    $decho "BD_Boot Start"
-   LILO_FILE=lilo.conf.$devType
-   if [ ! -f "$PLILO" ]; then
+   #
+   if ! which "$PLILO" > /dev/null 2> /dev/null ; then
       echo ""
       echo "Lilo not found: $PLILO"
       echo ""
@@ -596,6 +608,10 @@ function BD_Assign()
    else
       BD_LABEL=pwlinux
    fi
+   #
+   # other defaults
+   #
+   BD_LILO_PATH="."
 }
 
 #---------------------------------------------------
@@ -648,8 +664,7 @@ function BD_Assign()
          BD_Assign $CDROM_DEV  $CDROM_ID  $CDROM_ROOT_DEV  $CDROM_KERNEL
          ;;
       *)
-         echo "Invalid device specified: $1"
-         BD_Usage
+         BD_Usage "Invalid device specified: $1"
          ;;
    esac
    if [ "$1" = "" ] ; then
@@ -685,8 +700,19 @@ function BD_Assign()
                 parm=${parm##l}
              ;; 
           m*)   BD_Mount
-                $decho "BD_Mount done"
                 parm=${parm##m}
+             ;;
+          u*)   BD_Unmount
+                parm=${parm##u}
+             ;;
+          "--custom")        # specified custom command for top of config file
+                             # use eval to remove quotes
+                      eval BD_CUSTOM=$2
+                      shift ; shift ; parm=$1
+             ;;
+          "--custom-image")          # specified custom image specific command
+                      eval BD_CUSTOM_IMAGE=$2
+                      shift ; shift ; parm=$1
              ;;
           "--dual-boot")
                 BD_Dual_Boot
@@ -719,6 +745,10 @@ function BD_Assign()
              ;;
           "--boot-file") 
                       BD_BOOT_FN="$2"
+                      shift ; shift ; parm=$1
+             ;;
+          "--lilo-path")
+                      BD_LILO_PATH="$2"
                       shift ; shift ; parm=$1
              ;;
           "--help")   BD_Usage

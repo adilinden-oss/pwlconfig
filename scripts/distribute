@@ -1,26 +1,163 @@
-#! /bin/bash
+#!/bin/bash
 
-# scripts/distribute
+#
+# distribute
 #
 # Creates two tar archives containing binaries and sources.
 # Takes version number as commandline argument.
+#
+# Now creates 3 tar archives containing sources, basic binaries and
+# supplementary binaries
+#
+###
+#
+###
+#
 
-usage () {
+#
+# display usage information
+#
+function distribute_usage () {
     echo ""
-    echo "Usage:   distribute [version]"
-    echo "Example: distribute 0.15"
+    echo "Usage:   distribute [all|src|bin|cfg]"
+    echo ""
+    echo "           all    create all archives"
+    echo "           src    create source archive"
+    echo "           bin    create binary archive"
+    echo "           cfg    create archive of the"
+    echo "                  pwlconfig utility"
+    echo ""
+    echo "Make sure you run the clean script first"
+    echo "to get rid of build time stuff...."
     echo ""
     exit 0
 }
 
-# Test for version
-[ -z $1 ] && usage
+#
+# lsm template
+#
+lsm_template () {
+    cat <<-EOF
+	Begin3
+	Title:          PeeWeeLinux
+	Version:        ${version}
+	Entered-date:   ${todaydate}
+	Description:    A Linux distribution for embedded applications and
+	                single floppy systems. Features an ncurses graphical
+	                configuration utility. Developed on a RedHat 6.1
+	                development system.
+	Keywords:       distribution embedded floppy configuration easy X11
+	Author:         adi@adis.on.ca (Adi Linden)
+	Maintained-by:  adi@adis.on.ca (Adi Linden)
+	Primary-site:   ftp://adis.on.ca /pub/Projects/Embedded
+	                ${srcsize} ${srcname}
+	                ${binsize} ${binname}
+	                ${cfgsize} ${cfgname}
+	                1 kB  peeweelinux.lsm
+	Alternate-site: ftp://metalab.unc.edu pub/linux/distributions/peewee
+	Original-site:
+	Platforms:      
+	Copying-policy: GPL
+	End
 
-cd ../../
-tar czpf embedded-${1}-src.tar.gz Embedded_Build
+EOF
+}
 
-tar czpf embedded-${1}-bin.tar.gz Embedded_Build \
-    --exclude build_pwl \
-    --exclude sources 
+#
+# get files
+#
+
+
+#
+# create source archive
+#
+do_src () {
+    tar czpf $srcname Embedded_Build
+}
+
+#
+# create binary archive
+#
+do_bin () {
+    tar czpf $binname \
+        --exclude="Embedded_Build/src/SRPMS"   \
+        Embedded_Build
+}
+
+#
+# create pwlconfig archive
+#
+do_pwlconfig () {
+    tar czpf $cfgname \
+        Embedded_Build/scripts                 \
+        Embedded_Build/bin                     \
+        Embedded_Build/examples                \
+        Embedded_Build/pwlconfig  
+}
+
+#
+# let's do it
+#
+# test for the current working directory
+#
+if echo `pwd` | grep -q Embedded_Build$; then
+
+    # source helpful functions
+    . ./scripts/pwl_functions
+
+    # we must have a version or something went wrong!
+    if [ -z "$PWL_VER" ]; then
+        echo "A serious error occured!"
+        echo "We don't have a version!"
+        exit 1
+    fi
+
+    # define current version
+    version="$PWL_VER"
+ 
+    # define archive names
+    srcname=peeweelinux-${version}-src.tar.gz
+    binname=peeweelinux-${version}-bin.tar.gz
+    cfgname=peeweelinux-${version}-cfg.tar.gz
+
+    # change working directory
+    cd ../
+
+    # see what we should be doing
+    case $1 in
+    all)
+        do_pwlconfig
+        do_bin
+        do_src
+        #
+        # get sizes for lsm template         
+        srcsize=`du -h $srcname | cut -f 1`
+        binsize=`du -h $binname | cut -f 1`
+        cfgsize=`du -h $cfgname | cut -f 1`
+        todaydate=`date +%Y-%m-%d`
+        #
+        # output lsm template
+        lsm_template > peeweelinux.lsm
+        ;;
+    bin)
+        do_bin
+        ;;
+    src)
+        do_src
+        ;;
+    cfg)
+        do_pwlconfig
+        ;;
+    *)
+        distribute_usage
+        ;;
+    esac
+else
+
+    # Wrong root
+    echo 'This scripts needs to be run from'
+    echo '     Embedded_Build'    
+    distribute_usage
+fi
 
 exit 0

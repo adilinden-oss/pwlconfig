@@ -1,0 +1,309 @@
+#!/bin/bash
+#
+###
+# Usage: pwl_create [ cmd [ parmeters ] ... ]
+#
+# The dialog to create a new project or select an example project
+#
+#   "cmd"    "parameters"      Results
+#   --help                     This help screen
+#   --project project Name     Select project (default is last one used)
+#   --init                     Initializes a new file from this Template
+#
+# Where:
+#    project Name is the name of a current PWL project
+#
+###
+#
+# History:
+#   v0.1 - created
+#
+# Comments:
+#
+######
+#pwl_create.README
+#
+#
+# This dialog allows you to create a new project from scratch or
+# select one of the prebuild example projects. The example projects
+# are there for you to practice, use as is or use as base for your
+# own development. 
+#
+# Descriptions for the example projects are below.
+#
+# "minimal.tgz"
+#
+#    The "minimal" project is intended as a reference design. It 
+#    is being used to test PeeWeeLinux before each release.
+#
+#    This project should run on virtualy any x86 platform. It is 
+#    very minimalistic, does not contain networking and is small
+#    enough to fit on a floppy but will also successfully run
+#    from flash or hard drive.
+#
+#    It will build straight from the standard packages and does not
+#    include any custom files. It is also ideally suited as a first
+#    project to get your feet wet with PeeWeeLinux and pwlconfig.
+#
+#
+#END
+######
+#
+#=============================================================================
+#
+# include generally handy functions
+#
+if [ -f "./scripts/pwl_functions" ] ; then
+  . ./scripts/pwl_functions
+elif [ -f "./pwl_functions" ] ; then
+  . ./pwl_functions
+else
+  echo "script pwl_functions not found"
+fi
+#
+PWL_PWL_CREATE_VER=${PWL_REL_VER}".1"
+#
+#
+#=============================================================================
+#
+# show_pwl_create ( select.lst ) - show checklist of items
+#
+function show_pwl_create()
+{
+   if [ -z "$pwl_createDefault" ] ; then
+      pwl_createDefault=Add
+   fi
+   echo -n $DIALOG --title "'Create New Project'" \
+                   --backtitle "'$backtitle'"      \
+                   --menu                          \
+"'Create New Project or Select Example Project      Project: $CFG_BASE'" \
+              $ROWS $COLS $((ROWS-8))                                 \
+             "'$pwl_createDefault'" > .dialog
+
+   cat $1 >> .dialog
+   . ./.dialog
+}
+
+#
+# build_pwl_create - create dialog of operations and selectable items
+#
+function build_pwl_create ()
+{
+   $decho "start build_pwl_create"
+   #
+   # insert command operations in menu
+   #
+   echo -n "" > $1
+   echo -n " 'Add'    'Create a New Project' "              >> $1
+   echo -n " 'skip'   '--- Example Projects ---' "           >> $1
+   # 
+   # do we have example projects?
+   #
+   if [ `ls $EXA_DIR | wc -l` = "0" ]; then
+       # just add a missing note
+       echo -n " 'skip'    'none found' " >> $1
+   else
+       #
+       # build list of example projects
+       #
+       for crFn in $EXA_DIR/* ; do
+           crBn=`basename $crFn`
+           echo -n " '$crFn'  '$crBn ' " >> $1
+       done
+   fi
+   #
+   $decho "end build_pwl_create"
+}
+
+#
+# pwl_create_init - Initialize project environment
+function pwl_create_init()
+{
+   $decho "start pwl_create_init $*"
+   #
+   # init stuff
+   #
+   pwl_init_project
+   default_define          # set global variables for project defaults
+   #
+   #
+   $decho "done pwl_create_init"
+}
+
+#=============================================================================
+#
+#  pwl_create_xxx functions go here !!
+#
+
+#=============================================================================
+#
+#
+# pwl_create_new ( [ new name ] ) - prompt user and create new project
+#
+function pwl_create_new () {
+    $decho "start pwl_create_new $*"
+    #
+    if [ "$1" = "" ]; then
+        #
+        # prompt for project name if not provided
+        #
+        get_string "Create New Project" \
+            "Enter Name of New Project to Create" \
+            "newName"
+        retVal=$?
+        if [ "$retVal" != "0" ] ; then
+            $decho "end pwl_create_new none $retVal"
+            return 1
+        fi
+    else
+        newName=$1
+    fi
+    #
+    if [ ! -z "$newName" ] ; then
+        #
+        #  set temp variable to new path/name
+        #
+        newDir="$PRJ_DIR"/"$newName"
+        #
+        # create a new configuration
+        #
+        if [ -d $newDir ] ; then
+        #
+           show_message "Error: Could not create Project" \
+                        "Project \"$newDir\" Already Exists"
+           status=1
+        fi
+    fi
+    # save newName for use by calling script
+    echo $newName > .newName
+    $decho "end pwl_create_new 0"
+    return $status
+}
+#
+# menu_pwl_create - operate on ***
+#
+function menu_pwl_create()
+{
+   $decho "start menu_pwl_create"
+   pwl_createDone=0
+   #
+   while [ "$pwl_createDone" = "0" ]; do
+      #
+      #  build list ***
+      #
+      build_pwl_create .select.lst
+      #
+      show_pwl_create .select.lst 2>.result
+
+      retVal=$?
+      read selection <.result
+      pwl_createDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            pwl_createDone=1
+           ;;
+         2)                          # help
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_create.README
+            show_help pwl_create.README what
+           ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           #
+           case "$selection" in
+             "Add")                  # operation "Create New Project"
+                xx=1
+                pwl_create_new
+                status=$?
+                #
+                pwl_createDone=1
+                ;;
+             "Total"|"Skip"|"skip")
+                xx=1 # do nothing
+                ;;
+             *)                      # operation "Extract Example"
+                xx=1
+                # extract selected project
+                $TAR -xzvf $selection > .result
+                show_results  .result "Restored Files from:$selection"
+                # get name of the project
+                head -1 .result | cut -d "/" -f 3 > .newName
+                #
+                pwl_createDone=1
+                ;;
+           esac       # end select item
+           ;;
+       esac    # end dialog response
+
+   done    # end while configuring
+
+   #
+   # return clean
+   #
+   $RM .select.lst .result .dialog  .show_result pwl_create.README
+   $decho "end menu_pwl_create"
+   return 0
+}
+
+#=============================================================================
+#
+# main - parse command line
+#
+function pwl_create_main()
+{
+   progInfo="`basename $0` - Version $PWL_PWL_CREATE_VER"
+   if [ "$backtitle" = "" ] ; then
+      backtitle=$progInfo
+   fi
+   #
+   # parse command line and execute commands or do interactive
+   #
+   gotOne=0
+   while [ "$1" != "" ] ; do
+      $decho "parse $*"
+      case "$1" in
+         "--help")                   #--help
+            usage
+            ;;
+         "--project")                #--project - assign current project
+            pwl_init_project $2
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         "--init")                   #--init
+            pwl_create_init $2
+            gotOne=1
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         *) usage "Invalid command $*"
+            ;;
+      esac
+      shift
+   done
+   #
+   # do interactive operation
+   #
+   if [ $gotOne = "0" ] ; then
+      #
+      usrMode="I"      # enable interactive mode
+      menu_pwl_create
+   fi
+}
+
+# start here
+  debug_mode 0        # set to 1 to enable debug macros
+
+  $decho "START $0"
+
+  pwl_create_main $*
+
+  $decho "END $0"
+
+  exit $status
+#
+# end
+#

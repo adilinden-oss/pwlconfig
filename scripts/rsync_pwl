@@ -1,0 +1,58 @@
+#!/bin/bash
+
+#
+# This script invokes rsync to syncronize the lates files
+#
+
+OPTIONS='-avuz'
+SERVER='adis.on.ca::pwl'
+
+#
+# Make sure we're in the root directory
+#
+
+if ! echo `pwd` | grep -q Embedded_Build$; then
+    echo 'This scripts needs to be run from'
+    echo '     Embedded_Build'
+    exit 1
+fi
+
+#
+# If we pass get we update the local source tree
+#
+
+case $1 in
+#
+# Backup duplicate files
+#
+bak)
+    echo "Syncing with server and backing up preexisting files"
+    echo 'by adding the ~ extension.'
+    rsync ${OPTIONS}b $SERVER ./
+    ;;
+#
+# Overwrite duplicates
+#
+del)
+    echo "Syncing with server and deleting preexisting files."
+    rsync ${OPTIONS} $SERVER ./
+    ;;
+#
+# Sync and delete everything not on server
+#
+clean)
+    echo "Syncing with server and deleting all files not existing"
+    echo "on server."
+    rsync ${OPTIONS} --delete $SERVER ./
+    ;;
+*)
+    echo "Usage: rsync_pwl [ bak | del | clean ]"
+    echo "       bak    Syncing with server and backing up"
+    echo "              preexisting files by adding the ~"
+    echo "              extension"
+    echo "       del    Syncing with server and deleting"
+    echo "              preexisting files"
+    echo "       clean  Syncing with server and deleting"
+    echo "              all files not existing on server"
+    ;;
+esac

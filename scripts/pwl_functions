@@ -1,23 +1,10 @@
 #
-# Make sure we're really running bash.
-#
-#  History
-#   v0.90 - changed user check to allow existing .result file
-#   V0.85 - changed dir_tree_list to remove leading "/"
-#   V0.84 - check file timestamps to verify save operation is required
-#   V0.83 - updated help for context, in-file and global help support
-#   V0.3 Added all new script names, confirm_save added for all to use
-#   V0.2 Added context sensitive help option, change lxdialog message
-#   V0.1 Created from other scripts
+#  History see CHANGES.pwlconfig
 #
 [ -z "$BASH" ] && { echo "`basename $0` requires bash" 1>&2; exit 1; }
 #
 MOVE_TO_COL="echo -en \t\t"
 WHOAMI=whoami
-#
-# Release Version number
-#
-PWL_REL_VER="0.90"
 #
 # include from "scripts directory or "Embedded_Build directory
 #
@@ -31,13 +18,23 @@ else
    basedir="."    # we must be in the scripts executed as . ?
    baseprj=".."
 fi
-
+#
+# Version is set in CHANGES.pwlconfig
+#
+. ./$basedir/CHANGES.pwlconfig
+#
+PWL_REL_VER=$PWL_VER      # for backward compatability
+#
 #echo functions base: $basedir projects at: $baseprj
 #
 # utility programs, and directories may vary with distro or preference
 #
 export DIALOG="$baseprj/bin/lxdialog"
-PLILO="$baseprj/bin/lilo"
+#PLILO="$baseprj/bin/lilo"
+PLILO="lilo"
+if [ -z "$RPM" ] ; then
+   RPM=${PWD}/bin/rpm   # make sure we use v3.0.3 for now
+fi
 #
 DEV_MGR="$basedir/mkBootDevice"
 PWL_BACKUP="$basedir/pwl_backup"
@@ -48,17 +45,28 @@ PWL_FUNCTIONS="$basedir/pwl_functions"
 PWL_LISTER="$basedir/pwl_lister"
 PWL_PROJECTS="$basedir/pwl_projects"
 PWL_PKGCONF="$basedir/pwl_pkgconf"
+PWL_PKGMGR="$basedir/pwl_pkgmgr"
 PWL_UPDATE="$basedir/pwl_update"
+PWL_CLEAN="$basedir/pwl_clean"
+PWL_TARGET="$basedir/pwl_target"
+PWL_TARGETF="$basedir/pwl_target_functions"
+PWL_TARGETL="$basedir/pwl_target_load"
+PWL_ENVSEL="$basedir/pwl_envsel"
+PWL_CREATE="$basedir/pwl_create"
 RM="rm -f"
 TAR=tar
 #
 # PWL - Directories (based from installed directory)
 #
-export PRJ_DIR="$baseprj/projects"
-export PKG_DIR="$baseprj/packages"
-export SRC_DIR="$baseprj/sources"
-export SCR_DIR="$baseprj/scripts"
 export BKS_DIR="$baseprj/backups"
+export EXA_DIR="$baseprj/examples"
+export BIN_DIR="$baseprj/bin"
+export MNT_DIR="$baseprj/mnt"
+export PKG_DIR="$baseprj/packages"
+export PRJ_DIR="$baseprj/projects"
+export SCR_DIR="$baseprj/scripts"
+export SRC_DIR="$baseprj/src"
+export TMP_DIR="$baseprj/tmp"
 #
 #  project specific directories
 #
@@ -73,7 +81,7 @@ CUSTOM_LST=custom.list
 CUSTOM_SRC=custom.src
 DEFAULT_CFG=project.defaults
 CFG_Default=project.conf
-#
+PKG_INDEX=.index.list
 #
 # verify utility programs exists
 #
@@ -266,7 +274,7 @@ function debug_trace
 }
 
 #
-# debug_mode(new mode) - enable or disable debugging output features
+# debug _mode(new mode) - enable or disable debugging output features
 #
 function debug_mode()
 {
@@ -288,25 +296,37 @@ function debug_mode()
       RM=":"                # don't delete temporary files when debugging
    fi
 }
-
+####################################################################
 #
-
+#  List handlers (using lxdialog)
 #
-# show_files ( title,  pack.lst ) - show checklist of files within a package
+####################################################################
 #
-function show_files()
+# show_list ( title, list.file, prompt )
+#
+function show_list()
 {
-   if [ -z "$filesDefault" ] ; then
-      filesDefault=Add
+   $decho "start show_list: $*"
+   if [ -z "$ListDefault" ] ; then
+      ListDefault="Add"   # todo: should be head item in list.file
    fi
-   echo -n $DIALOG --title "$1" \
-                   --backtitle \"$backtitle\"       \
-                   --menu                           \
-"'Select files to include                           Project: $CFG_BASE'" \
-              $ROWS $COLS $((ROWS-8)) \
-              "'$filesDefault'" > .dialog
+   local listTitle="$1"
+   local listFile="$2"
+   local cmdPrompt="$3"
+   #
+   if [ "$cmdPrompt" = "" ] ; then
+      cmdPrompt="internal error: show_list called from $0"
+   fi
+   #$decho -e "show list for: $listTitle \n  from: $listFile\n prompt: $cmdPrompt"
+   #
+   echo -n $DIALOG --title     \""${listTitle}"\"     \
+                   --backtitle \"${backtitle}\"       \
+                   --menu      \""${cmdPrompt}"\"     \
+              $ROWS $COLS $((ROWS-8))                 \
+              "'$ListDefault'" > .dialog
 
-   cat $2 >> .dialog
+   cat $listFile >> .dialog
+
    . ./.dialog
 }
 
@@ -360,6 +380,137 @@ function show_message ()
 
    # --msgbox is undocumented feature of lxdialog (see the source vs help)
    # but wraps text lines nicely
+}
+
+
+#
+# show_files ( title,  pack.lst ) - show checklist of files within a package
+#
+function show_files()
+{
+   $decho "show_files: $*"
+    ListDefault="$filesDefault"
+    #
+    show_list "${1}" $2 \
+"Select files to include                           Project: $CFG_BASE" 
+}
+
+#
+# Displays a dialog of a list of files
+#
+function show_FileSelect()
+{
+   if [ -z "$fileSelectDefault" ] ; then
+      fileSelectDefault="\."
+   fi
+   echo -n $loc/$DIALOG --title \'$1\' \
+                   --backtitle \"$backtitle\"       \
+                   --menu                           \
+"'Select a file or traverse a directory         Project: $CFG_BASE'" \
+              $ROWS $COLS $((ROWS-8)) \
+              "'$fileSelectDefault'" > $loc/.dialog
+
+   cat $2 >> $loc/.dialog
+   . $loc/.dialog
+}
+
+#
+# FileSelect( srcPath, *resultFilename, [ ext [ Dir-Only ] ] )
+#  dialog box to display a file tree and allow it to be traversed. 
+#  returns a file that is selected or a directory as selected
+#
+function FileSelect( )
+{
+   $decho "start fileselect $*"
+   #
+   local srcpath=$1
+   local ext=$3
+   local dirOnly=$4
+   local userFile=""
+   local loc=""
+   #
+   # build list of files and display (use -p to indicate type of file)
+   #
+   loc=$PWD
+   if [ ! -d $srcpath ] ; then
+      srcpath=".."
+   fi
+   cd $srcpath
+   srcpath=$PWD
+   cd $loc
+   userFile=$srcpath    # default is directory path 
+   #
+   fileselectDone=0
+   #
+   while [ "$fileselectDone" = "0" ]; do
+      #
+      # build list of files
+      #
+      cd $srcpath
+
+      echo "../" > $loc/.fileselect.lst  # make default for empty directories
+      #
+      # always list all directories (add "/" suffix to indicate directory)
+      #
+      find -maxdepth 1 -type d | sort | gawk '{printf("%s/\n", $1 )}' >> $loc/.fileselect.lst 
+      #
+      # list type of files given or all files 
+      #
+      if [ ! -z "$ext" ] ; then
+         find -maxdepth 1 -name "$ext" | sort >> $loc/.fileselect.lst
+      else
+         find -maxdepth 1 -type f | sort >> $loc/.fileselect.lst 
+      fi
+      cd $loc
+      #
+      # clean up the files listed - remove leading ./ and blank lines
+      #   format output for lxdialog
+      #
+      sed 's/^.\///g' $loc/.fileselect.lst | sed '/^$/d' | gawk '{ \
+                 printf(" '\''%s'\'' '\''%s'\''", $1, $1 ) \
+            }' > $loc/.tmp.lst
+
+      show_FileSelect "$srcpath" .tmp.lst 2> .result
+
+      retVal=$?
+      read selection < .result
+
+      case "$retVal" in
+         1|255)                      # exit
+           fileselectDone=1
+           if [ "$dirOnly" = "" ] ; then  # if not requesting directories, 
+              userFile=""               #  then exit with blank filename
+           fi
+           ;;
+         0|3|4|5|6)                  # file or directory selected
+           if [ -f $srcpath/$selection ] ; then
+               $decho "found file $selection"
+              userFile="$srcpath/$selection"
+              fileselectDone=1
+
+           elif [ -d $srcpath/$selection ] ; then        # recurse into directory
+              $decho "traverse into directory $srcpath / $selection" 
+              cd $srcpath/$selection   # rebuild path for ".." selections
+              srcpath=$PWD
+              cd $loc
+              userFile=$srcpath
+
+           else
+              $decho "not found $srcpath  / $selection"
+              xx=1
+           fi
+         ;;
+      esac
+   done
+   # file selected, return the filename
+   #
+   $decho "file selected: $userFile"
+   eval $2=\"$userFile\"
+   #
+   cd $loc
+   $RM -rf .fileselect.lst
+   #
+   return 0     
 }
 
 #
@@ -457,26 +608,160 @@ function show_confirm ()
 
 
 #
-# dir_tree_list_all( dir_root, [ resultsFile ] )
+#  build_changed_list( changedFiles, selectedFiles, dialogLst, [addPrompt])
+#     builds a dialog of files listed in changedFiles. If the file is
+#     also found in the selectedFiles list, then it is enabled.
+#     The results of this are stored in the named dialogLst file.
+#
+function build_changed_list()
+{
+   $decho "start build_changed_list"
+   #
+   local changedList=$1
+   local selectedList=$2
+   local dialogLst=$3
+   if [ "$4" = "" ] ; then
+      addPrompt="Add Selected Files to $CFG_BASE Configuration"
+   else
+      addPrompt="$4"
+   fi
+   #
+   #  Include options to add or remove all files from this package
+   #
+   echo -n > $dialogLst
+   echo -n " 'Add'      '${addPrompt}' "         >> $dialogLst
+   echo -n " 'Skip'     '----' "                 >> $dialogLst
+   echo -n " 'Include'  'Include all files' "    >> $dialogLst
+   echo -n " 'Exclude'  'Exclude all files' "    >> $dialogLst
+   #
+   fileCnt=0
+   for fn in `cat $changedList`; do
+      #
+      if grep -q "$fn" $selectedList ; then
+         echo -n " '$fn' '[*] $fn' " >> $dialogLst
+      else
+         echo -n " '$fn' '[ ] $fn' " >> $dialogLst
+      fi
+   done
+   #
+   $decho "done build_changed_list"
+}
+
+#
+# choose_files( changedFiles, selectedFiles, title, [ execPrompt ] )
+#     Returns: 0 when user is done
+#     Returns: 1 on 'ESC' or exit
+#              selectedFiles contains list of files selected by user
+#
+function choose_files()
+{
+   $decho "begin choose_files"
+   #
+   local changedFiles=$1       # not written to
+   local selectedFiles=$2      # updated as per user selections
+   local title="$3"
+   local execPrompt="$4"
+   #
+   local filesDone=0
+   local selection=""
+   local retVal=""
+   local retStatus=""
+   #
+   filesDefault="Add"          # default to top of list
+   #
+   # if none are selected, default to all selected
+   #
+   if [ ! -s $selectedFiles ] ; then
+      $decho "defaulting to all selected"
+      cp -f $changedFiles $selectedFiles
+   fi
+   #
+   while [ "$filesDone" = "0" ] ; do
+      #
+      build_changed_list $changedFiles $selectedFiles .select.lst "$execPrompt"
+      #
+      show_files "$title" .select.lst 2> .result
+      retVal=$?
+      read selection < .result
+      filesDefault=$selection   # set global default variable
+      #
+      case "$retVal" in
+         1|255)                      # exit
+            retStatus=1
+            filesDone=1
+           ;;
+         2)                          # help
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_update.README
+            show_help pwl_update.README
+           ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           #
+           case "$selection" in
+             "Add")
+                retStatus=0
+                filesDone=1
+                ;;
+             "Include")                  # operation "Include"
+                cp -f $changedFiles $selectedFiles
+                ;;
+             "Exclude")
+                echo -n "" > $selectedFiles
+                ;;
+             "Total"|"Skip"|"skip")
+                xx=1 # do nothing
+                ;;
+             *)                      # list item selected
+                if grep -q $selection $selectedFiles; then
+                   grep -v $selection $selectedFiles > .tmp
+                   cp -f .tmp $selectedFiles
+                else
+                   echo $selection >> $selectedFiles
+                fi
+                ;;
+           esac       # end select item
+           ;;
+       esac    # end dialog response
+
+   done    # end while configuring
+   #
+   $RM -f .tmp .result
+   $decho "done choose_files"
+   return $retStatus
+}
+
+#############################################################################
+#
+# dir_tree_list_all( dir_root [, resultsFile [, find_option  ] )
 #         - builds a list of all files found in the given dir_root
 #
 function dir_tree_list_all()
 {
-   loc=$PWD
-   cd $1
+   local lstDir=$1
+   local resFn=".result"
+   local findOpt=""
    #
-   # list files, remove file size and leading dot, remove blank lines
-   #     remove leading / also
+   if [ "$2" != "" ] ; then          # optional second arg
+      resFn="$2"
+      if [ "$3" != "" ] ; then       #  optional third arg
+         findOpt="$3"
+      fi
+   fi
    #
-   du . -a | cut -f2 | cut -d. -f2- | sed /^$/d | sort -u | sed "s/^\/*//g" > $loc/.result
+   local loc=$PWD
+   cd $lstDir
+   #
+   # list directories and files within the current directory
+   #
+   find ${findOpt}   > $loc/.tmp_tree
+   # find ${findOpt} -type d  >> $loc/.tmp_tree
    #
    cd $loc
    #
-   # update to given file if specified
+   # sort and remove leading ./ characters
    #
-   if [ ! -z "$2" ] ; then
-      cp $loc/.result $2
-   fi
+   sort -u .tmp_tree | sed -e "s/^\.//g" -e "s/^\///g" > $resFn
+   #
+   $decho "built list of files in $resFn from $lstDir using $findOpt"
 }
 
 
@@ -584,7 +869,7 @@ function usage()
 }
 
 #
-# default_define - parse defaults file and set variables
+# default_define - parse defaults file, set variables, check version
 #
 function default_define()
 {
@@ -600,6 +885,17 @@ function default_define()
    else
       $decho "default not found"
       status=1
+   fi
+   #
+   # set our deviceName depending on our configuration
+   # and only if rd_floppy or rd_target are defined
+   #
+   if [ -n "$rd_floppy" -o -n "$rd_target" ]; then
+       if echo "$target_scheme" | grep -q "^fd"; then
+           export deviceName="$rd_floppy"
+       else
+           export deviceName="$rd_target"
+       fi
    fi
    #
    $decho "end default_define"

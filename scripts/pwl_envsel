@@ -1,0 +1,269 @@
+#!/bin/bash
+#
+###
+# Usage: pwl_envsel [ cmd [ parmeters ] ... ]
+#
+#
+#   "cmd"    "parameters"      Results
+#   --help                     This help screen
+#   --project project Name     Select project (default is last one used)
+#   --init                     Initializes a new file from this Template
+#
+# Where:
+#    project Name is the name of a current PWL project
+#
+######
+#pwl_envsel.README
+#
+#
+#END
+######
+#
+#=============================================================================
+#
+# include generally handy functions
+#
+if [ -f "./scripts/pwl_functions" ] ; then
+  . ./scripts/pwl_functions
+elif [ -f "./pwl_functions" ] ; then
+  . ./pwl_functions
+else
+  echo "script pwl_functions not found"
+fi
+#
+PWL_PWL_ENVSEL_VER=${PWL_REL_VER}".1"
+#
+#
+#=============================================================================
+#
+# show_pwl_envsel ( select.lst ) - show checklist of items
+#
+function show_pwl_envsel()
+{
+   if [ -z "$pwl_envselDefault" ] ; then
+      pwl_envselDefault=Add
+   fi
+   echo -n $DIALOG --title "'Select Target Environment Menu'" \
+                   --backtitle "'$backtitle'"      \
+                   --menu                          \
+"'Select Environment to use                      Project: $CFG_BASE'" \
+              $ROWS $COLS $((ROWS-8))                                 \
+             "'$pwl_envselDefault'" > .dialog
+
+   cat $1 >> .dialog
+   . ./.dialog
+}
+
+#
+# Call this to store the strings used to describe the target environment
+#
+function pwl_envsel_name()
+{
+   comp_rd_fat_desc="Compressed ramdisk on FAT 16 partition"
+   comp_rd_ext2_desc="Compressed ramdisk on ext2 partition"
+   uncomp_rd_fat_desc="Uncompressed ramdisk, boot from FAT 16 partition"
+   uncomp_rd_ext2_desc="Uncompressed ramdisk, boot from ext2 partition"
+   ro_root_rd_desc="Read-only root fs with multiple ramdisks"
+   fd_raw_desc="Compressed ramdisk on floppy disk w/o bootloader"
+   fd_cd_desc="Compressed ramdisk on FAT12 floppy disk w/syslinux"
+   iso_rd_desc="Bootable iso image with ramdisk"
+   iso_ro_desc="Bootable iso image with read-only root"
+   rw_root_desc="Read-write root on a single partition"
+   #
+   # all descriptive strings defined - point to our target string
+   #
+   desc=`echo "$"${target_scheme}_desc`
+   #
+   # and copy to the target description variable - this is slick !:)
+   #
+   export target_scheme_desc=`eval echo $desc`
+   #
+}
+
+#
+# build_pwl_envsel - create dialog of operations and selectable items
+#
+function build_pwl_envsel ()
+{
+   $decho "start build_pwl_envsel"
+   #
+   # insert command operations in menu
+   #
+   echo -n "" > $1
+   echo -n " 'comp_rd_fat'    '$comp_rd_fat_desc' " >> $1
+   echo -n " 'comp_rd_ext2'   '$comp_rd_ext2_desc' " >> $1
+   echo -n " 'uncomp_rd_fat'  '$uncomp_rd_fat_desc' " >> $1
+   echo -n " 'uncomp_rd_ext2' '$uncomp_rd_ext2_desc' " >> $1
+   echo -n " 'ro_root_rd'     '$ro_root_rd_desc' " >> $1
+   echo -n " 'skip'           ' ----- Non-flash target devices -----' " >> $1
+   echo -n " 'fd_raw' '$fd_raw_desc' " >> $1
+   echo -n " 'skip'           ' --+--+--+--+--+--+---+--+--+--+--+--' " >> $1
+   echo -n " 'skip'           ' - Under development target devices -' " >> $1
+   echo -n " 'fd_cd'  '$fd_cd_desc' " >> $1
+   echo -n " 'iso_rd' '$iso_rd_desc' " >> $1
+   echo -n " 'iso_ro' '$iso_ro_desc' " >> $1
+   echo -n " 'skip' ' ----- For testing only!  -----' " >> $1
+   echo -n " 'rw_root' '$rw_root_desc' " >> $1 
+   #
+   $decho "end build_pwl_envsel"
+}
+
+#
+# pwl_envsel_init - Initialize project environment
+function pwl_envsel_init()
+{
+   $decho "start pwl_envsel_init $*"
+   #
+   # init stuff
+   #
+   pwl_init_project
+   default_define          # set global variables for project defaults
+   #
+   if [ "$target_scheme" = "" ] ; then   # assign default
+     target_scheme=comp_rd_ext2
+   fi
+   pwl_envsel_name
+   #
+   $decho "done pwl_envsel_init"
+}
+
+#=============================================================================
+#
+#  pwl_envsel_xxx functions go here !!
+#
+
+#=============================================================================
+#
+#
+# menu_pwl_envsel - operate on ***
+#
+function menu_pwl_envsel()
+{
+   $decho "start menu_pwl_envsel"
+   pwl_envselDone=0
+   #
+   while [ "$pwl_envselDone" = "0" ]; do
+      #
+      #  build list ***
+      #
+      build_pwl_envsel .select.lst
+      #
+      show_pwl_envsel .select.lst 2>.result
+
+      retVal=$?
+      read selection <.result
+      pwl_envselDefault=$selection
+      #
+      case "$retVal" in
+         1|255)                      # exit
+            pwl_envselDone=1
+           ;;
+         2)                          # help
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_envsel.README
+            show_help pwl_envsel.README
+           ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           #
+           case "$selection" in
+             "Total"|"Skip"|"skip")
+                xx=1 # do nothing
+                ;;
+             *)                      # list item selected
+                target_scheme="$selection"
+                pwl_envsel_name
+                if [ "$resultsFile" != "" ] ; then
+                   echo export target_scheme="$target_scheme"   > $resultsFile
+                   echo export target_scheme_desc=\"$target_scheme_desc\" >> $resultsFile
+                fi
+                pwl_envselDone=1
+                ;;
+           esac       # end select item
+           ;;
+       esac    # end dialog response
+
+   done    # end while configuring
+
+   #
+   # return clean
+   #
+   $RM .select.lst .result .dialog  .show_result pwl_envsel.README
+   $decho "end menu_pwl_envsel"
+   return 0
+}
+
+#=============================================================================
+#
+# main - parse command line
+#
+function pwl_envsel_main()
+{
+   progInfo="`basename $0` - Version $PWL_PWL_ENVSEL_VER"
+   if [ "$backtitle" = "" ] ; then
+      backtitle=$progInfo
+   fi
+   pwl_envsel_init INIT_ONLY   # INIT_ONLY is a flag for pwl_envsel only- remove this!
+   #
+   # parse command line and execute commands or do interactive
+   #
+   gotOne=0
+   while [ "$1" != "" ] ; do
+      $decho "parse $*"
+      case "$1" in
+         "--help")                   #--help
+            usage
+            ;;
+         "--project")                #--project - assign current project
+            pwl_init_project $2
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+         "--desc")                    # output description
+            if [ "$2" != "" ] ; then  #  - output to file
+               resultsFile="$2"
+               shift
+            else                          # return text string on stdout
+               echo "$target_scheme_desc"
+               exit 0     
+            fi
+            ;;
+         "--init")                   #--init
+            pwl_envsel_init $2
+            gotOne=1
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         *) usage "Invalid command $*"
+            ;;
+      esac
+      shift
+   done
+   #
+   # do interactive operation
+   #
+   if [ $gotOne = "0" ] ; then
+      #
+      # do debug here to allow command line operation
+      #
+      debug_mode 0        # set to 1 to enable debug macros
+      #
+      usrMode="I"      # enable interactive mode
+      menu_pwl_envsel
+   fi
+}
+
+# start here
+  debug_mode 0        # set to 1 to enable debug macros
+
+  $decho "START $0"
+
+  pwl_envsel_main $*
+
+  $decho "END $0"
+
+  exit 0
+#
+# end
+#

@@ -1,0 +1,214 @@
+#
+# =======================
+# set the current version
+# =======================
+#
+PWL_MAJ_VER="0"           # major release number
+#
+PWL_MIN_VER="53"          # minor release number
+#
+PWL_REV_VER="3"          # revision level
+#
+#  Current PeeWeeLinux Release
+#
+PWL_VER="${PWL_MAJ_VER}.${PWL_MIN_VER}.${PWL_REV_VER}"
+#
+return
+#
+======================================
+The Changelog and History of pwlconfig
+======================================
+
+Created by Ralph Stickley rstickley@datalux.com
+
+Built for Pee Wee Linux created by Adi Linden adi@adis.on.ca
+
+Many (ok, very many) Features copied from Menuconfig script
+Requires lxdialog from /usr/src/linux/scripts/lxdialog
+
+History
+-------
+
+Sat Oct 21 2000 Adi Linden <adi@adis.on.ca>
+- created pwl_create to specify new project or load example
+    added various little 'features' to scripts for error checking
+- added minimal.tzg example package
+
+Fri Oct 20 2000 Adi Linden <adi@adis.on.ca>
+- pwlconfig
+    keeping track of pwl and pwlconfig version in scripts/pwl_functions
+- pwl_pkgmgr
+    fixed pkgmgr_srcs_dir variable to pkgmgr_src_dir
+    removed trap for 0 size packages, dev-X is zero but valid!
+    added a trap for the kernel to add kernel version
+- pwl_backup
+    stripped path from restore menu
+- pwl_project
+    added init time dialog displayed if there are no projects
+    mofified help screen
+
+Wed Oct 18 2000 Adi Linden <adi@adis.on.ca>
+- pwl_target
+    added call to func_rd_define
+- pwl_target_functions
+    fixed configuration parameters
+    init rd_fail
+- pwl_target_load
+    added FAT12 for FAT volumes under 16MB
+    fixed fstab for floppy based systems
+- pwl_envsel
+    edited menu to identify working targets
+
+Tue Oct 17 2000 Adi Linden <adi@adis.on.ca>
+- added config file checking when configuration parameters change
+- pwl_defaults
+    added version variable to defaults file
+    updated help information
+- pwl_function
+    changed version to reflect PeeWeeLinux version
+
+Sat Oct 14 2000 Adi Linden <adi@adis.on.ca>
+- pwlconfig
+    modified menus to support new target loading support
+
+Fri Oct 13 2000 Adi Linden <adi@adis.on.ca>
+- pwl_defaults
+    modified quite heavily to support new target load scheme
+
+Wed Oct 11 2000 Adi Linden <adi@adis.on.ca>
+- pwl_target
+    split pwl_target_load
+    addded func_rd_pwlconfig
+    added error flag to func_rd_action_failure
+    fixed to work with rd_dialog
+    split from pwl_target
+
+Wed Sep 20 2000 Ralph Stickley <rstickley@datalux.com>
+- pwl_target, pwl_target_function, pwl_target_load
+    split file and integrated with pwlconfig
+
+Sun Sep 03 2000 Adi Linden <adi@adis.on.ca>
+- pwl_target, pwl_target_function, pwl_target_load
+    Added raw floppy support
+
+Wed Aug 23 2000 Adi Linden <adi@adis.on.ca>
+- pwl_target, pwl_target_function, pwl_target_load
+    Added uncomp_rd_ext2 and uncom_rd_fat support
+
+Mon Aug 21 2000 Adi Linden <adi@adis.on.ca>
+- pwl_target, pwl_target_function, pwl_target_load
+    Created the initrd script
+
+Sun Aug 20 2000 Adi Linden <adi@adis.on.ca>
+- pwl_target, pwl_target_function, pwl_target_load
+    Initial development
+
+History
+=======
+
+Below is the history of changes to pwlconfig by Ralph Stickley
+until October 11, 2000. Since then the version numbering has been
+changed to coincide with the PeeWeeLinux version.
+
+pwlconfig
+---------
+v0.97 - Integrated with Adi's multiple-target operations
+v0.93 - added unmount, force index list file creation, cleanup
+v0.90 - Added Dual boot capability, fixed erase, use pwl usage, use
+        project defaults where applicatable
+v0.86 - maintain hidden .extract.log and .lilo.res files for debugging
+        include device mount point (from project defaults) on Erase
+v0.85 - fixed command line extraction process
+v0.84 - more extraction of code
+v0.82 - move Update to main menu, cleanup cleanups, proper lilo options
+        - re-added feature to check custom source files by date
+v0.8  - massive changes using multiple smaller scripts
+v0.7a - speed ups and updating fixed, rm option for debug
+v0.7b - use mkBootDevice script
+v0.7c - split out defaults, custom and project functions into
+          little scripts
+v0.7d - added smart save, fix Update cmd for tar files
+
+v0.7 - bug fixes, added Update project function, split with pwl_custom
+v0.6 - bug fix to support 'nearly' matching filenames, added debug utilities
+        re-worked command line parameters and added usage statement
+v0.5 - package selection from subdirectories; cleanup function names
+v0.4 - more major bug fixes, added file sizes to help figure system size
+v0.3 - major bug fixes, require root login to extract devices and DOC erase
+v0.2 - Added multiple configurations, custom files handling
+v0.1 - released not tested
+
+pwl_backup
+----------
+
+v0.86 - added command line options and more documentation
+v0.85 - dialog box tested, command line options not complete
+v0.1 - created
+
+pwl_custom
+----------
+
+v0.97 - fixed/finished update refreshes to sync source/custom files
+v0.92 - added custom depend functions
+v0.91 - fixed bug with cp command - "r" must be first!
+v0.85 - changed to ensure leading "/" not included (just like tar lists)
+v0.84 - additional parameter testing for adding source files
+v0.5  - sort source files to remove duplicates
+v0.4  - changed commands to match other pwl scripts, added menus
+v0.3  - removed duplicate functions, include from pwl_functions
+v0.2  - speed up custom refresh, support symbolic link source files
+v0.1  - created
+
+pwl_defaults
+------------
+
+v0.9  - added lilo custom default commands
+v0.85 - updated version number for release, no in-file help yet
+v0.1  - created
+
+pwl_functions
+-------------
+
+v0.97 - added more project variables for consistancy
+v0.96 - added file choose function
+v0.91 - added file select function
+v0.90 - changed user check to allow existing .result file
+v0.85 - changed dir_tree_list to remove leading "/"
+v0.84 - check file timestamps to verify save operation is required
+v0.83 - updated help for context, in-file and global help support
+v0.3  - Added all new script names, confirm_save added for all to use
+v0.2  - Added context sensitive help option, change lxdialog message
+v0.1  - Created from other scripts
+
+pwl_mkpkg
+---------
+
+v0.86 - added verbose option, support non-existing packages directory
+v0.85 - added help message
+v0.2  - changed to support package sources in a directory
+        executable from any location
+
+pwl_pkgconf
+-----------
+
+v0.92 - added dependency cabability
+v0.9  - Added search capability
+v0.85 - replaced paths to temp file with CFG_FILE_TMP
+v0.1  - created
+
+pwl_projects
+------------
+
+v0.85 - Changed "project not saved" message
+v0.1  - created
+
+pwl_update
+----------
+
+v0.86 - some bug fixes, BIG BUG LEFT: files "removed" from reference
+        aren't handled properly!
+v0.85 - added full help message
+v0.1  - created
+
+
+

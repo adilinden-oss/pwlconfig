@@ -13,10 +13,6 @@
 #   --project project name       use this project (default is last project)
 ###
 #
-# History:
-#   v0.85 - Changed "project not saved" message
-#   v0.1 - created
-#
 # Comments:
 ######
 #pwl_projects.README
@@ -37,12 +33,11 @@
 #
 # "Create a New Project"
 #
-#    Selecting this option will prompt you for the name of your new
-#    project.
+#    Selecting this option will allow you to either create a new   
+#    project or select one of the available example projects.
 #
-#    Along with the project name, you will be prompted for the initial
-#    device: DOC, FLASH, Floppy, CDROM.  Enter one of these for
-#    setting defaults for your project.
+#    The example projects are there for you to practice or use as
+#    a base for you own development work.
 #
 # "Copy <project> to New Project"
 #
@@ -73,12 +68,6 @@
 #    This allows you to create backup files for various items within
 #    the project and the PWL envronment. See on-line help for this
 #    menu for further explanation.
-#
-# "Project defaults for <project>"
-#
-#    This allows you to set some global "project" specific parameters
-#    such as mount points, device types and so on. See on-line help
-#    for this menu for further explanation.
 #
 # [] <project name 1>
 # [] <project name 2>
@@ -146,7 +135,6 @@ function build_project ()
          echo -n " 'Remove'  'Remove Project \"$CFG_BASE\" -->' "      >> $1
          echo -n " 'Archive' 'Backup/Restore Projects and Environment -->' " >> $1
          echo -n " 'skip'   '------' " >> $1
-         echo -n " 'Default' 'Project defaults for \"$CFG_BASE\" -->' " >> $1
       fi
       #
       # list all project files found in project directory
@@ -220,6 +208,7 @@ function projects_define_last()
    #
    cat <<- EOF > $PRJ_LAST
        export CFG_BASE="$CFG_BASE"
+       export DEFAULT_CFG="$DEFAULT_CFG"
 	EOF
 #^^ tab character here!!
    $decho "end projects_define_last"
@@ -274,55 +263,6 @@ revert back to your last \"saved\" configuration select 'No'."  10
    $decho "end projects_assign"
 
    return 0
-}
-
-#
-# projects_new( [ new name ] ) - prompts user and creates new project
-#
-function projects_new()
-{
-   $decho "start projects_new $*"
-   # create a new project
-   if [ "$1" = "" ] ; then
-      #
-      # prompt for project name if not provided
-      #
-      get_string "Create New Project" \
-                 "Enter name of new Project to Create" \
-                 "newName"
-      retVal=$?
-      if [ "$retVal" != "0" ] ; then
-         $decho "end projects_new none $retVal"
-         return 1
-      fi
-   else
-      newName=$1
-   fi
-   #
-   if [ ! -z "$newName" ] ; then
-      #
-      #  set temp variable to new path/name
-      #
-      newDir="$PRJ_DIR"/"$newName"
-      #
-      # create a new configuration
-      #
-      if [ -d $newDir ] ; then
-      #
-         show_message "Error: Could not create Project" \
-                      "Project \"$newDir\" Already Exists"
-         status=1
-      else
-         #
-         #  setup new project
-         #
-         projects_assign $newName
-         status=$?
-         #
-      fi
-   fi
-   $decho "end projects_new 0"
-   return $status
 }
 
 #
@@ -431,11 +371,12 @@ function menu_projects()
                 projects_remove       # prompt to confirm and kill it
                 ;;
              "Add")
-                projects_new          # prompt for new project name and create it
-                if [ "$?" = "0" ] ; then
-                   # valid new project, assign new device defaults
-                   $PRJ_DEFAULTS --reset
+                $PWL_CREATE
+                if [  "$?" = "0" -a -s .newName ]; then
+                    projects_assign `cat .newName` 
                 fi
+                # cleanup
+                $RM .newName
                 ;;
              "Copy")
                 projects_copy         # Prompt for source and destination and duplicate
@@ -469,7 +410,7 @@ function menu_projects()
    #
    # return clean
    #
-   $RM .result .select.lst pwl_projects.README
+   $RM .result .select.lst pwl_projects.README .newName
    #
    $decho "end menu_project"
    if [ -z "$CFG_BASE" ] ; then
@@ -519,13 +460,6 @@ function projects_init()
       #
       projects_assign $CFG_BASE
       status=$?
-   #
-   elif [ ! -d $PRJ_DIR ] ; then
-      #
-      $decho "new project directory, prompt for project"
-      #
-      projects_new
-      status=$?
    else
       #
       $decho "no default listed, check for existing projects"
@@ -536,13 +470,17 @@ function projects_init()
          eval firstPrj=`head -1 .result`
          projects_assign $firstPrj
          status=$?
-      #
+         #
       else
          #
-         $decho "clean installation, create new project"
-         #
-         projects_new
+         $PWL_CREATE
          status=$?
+         if [  "$?" = "0" -a -s .newName ]; then
+             projects_assign `cat .newName`
+             status=$?
+         fi
+         # cleanup
+         $RM .newName
       fi
       #
    fi

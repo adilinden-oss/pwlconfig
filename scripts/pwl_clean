@@ -1,0 +1,40 @@
+#! /bin/bash
+
+# scripts/clean
+#
+# 6/22/00 - rcs - remove temporary files, added factory option
+#
+# Cleans up the Embedded_Build tree
+#
+
+if echo `pwd` | grep -q Embedded_Build$; then
+
+    rm -rf src/BUILD/*
+    rm -rf src/SPECS/*
+    rm -rf src/SOURCES/*
+    rm -rf mnt/*
+    rm -rf ram/*
+
+    # remove any temporary files
+    rm -rf tmp/*
+
+    # restore to original system files only, factory defaults
+    if [ "$1" = "--save-projects" ] ; then
+       rm -rf rpm
+       rm -rf packages 
+       #
+    elif [ "$1" = "--factory" ] ; then
+       rm -rf rpm/*
+       rm -rf packages/*
+       rm -rf projects/*
+       rm -rf ./.*  2> /dev/null     # don't delete these from within pwlconfig!
+    fi
+     
+else
+
+    # Wrong root
+    echo 'This scripts needs to be run from'
+    echo '     Embedded_Build'    
+fi
+
+exit 0

@@ -18,12 +18,6 @@
 #
 ###
 #
-# History:
-#   v0.86 - some bug fixes, BIG BUG LEFT: files "removed" from reference
-#            aren't handled properly!
-#   v0.85 - added full help message
-#   v0.1 - created
-#
 # Comments:
 #
 ######
@@ -228,17 +222,18 @@ function build_pwl_update ()
    # insert command operations in menu
    #
    echo -n "" > $1
-   echo -n " 'fsCfg'    'Update Configuration for New Packages-->'   " >> $1
-   echo -n " 'devMnt'   'Update From $deviceName at $deviceLoc$devicePartition -->'  " >> $1
-   echo -n " 'fsMnt'    'Update From Directory -->' " >> $1
+   echo -n " 'UpdateDir' 'Update Configuration From Directory-->'   " >> $1
+   echo -n " 'UpdateDev' 'Update Configuration From $deviceName at $deviceLoc$devicePartition -->'  " >> $1
+   echo -n " 'CreateDir' 'Create Project From Directory -->' " >> $1
+   echo -n " 'CreateDev'  'Create Project From $deviceName at $deviceLoc$devicePartition -->'  " >> $1
 #   echo -n " 'fsList'   'Update From ls -lR File List -->'   " >> $1
    echo -n " 'skip'     '------' "                       >> $1
    #
    # build options for all variables
    #
 #   echo -n " 'udTime'  '[${udTime:+"*"}] File Timestamps must match (if known)' "              >> $1
-   echo -n " 'udPkg'   '[${udPkg:+"*"}] Check Packages for new files' "        >> $1
-   echo -n " 'udFnPr'  '[${udFnPr:+"*"}] Prompt to Choose Packages' "                    >> $1
+#   echo -n " 'udPkg'   '[${udPkg:+"*"}] Check Packages for new files' " >> $1
+#   echo -n " 'udFnPr'  '[${udFnPr:+"*"}] Prompt to Choose Packages' " >> $1
    echo -n " 'udTest'  '[${udTest:+"*"}] Test only - do not change my configuration' "  >> $1
    #
    $decho "end build_pwl_update"
@@ -409,7 +404,7 @@ function menu_update_start()
    #
    # If there are any temporary config files hanging around, save them now
    #
-   confirm_save
+   # confirm_save
    #
    # build list of selectable root directories
    #
@@ -441,7 +436,12 @@ function menu_update_start()
            case "$selection" in
              "Update")                # operation "Update"
                 TEST_ONLY=${udTest:+":"}
-                cmd_update_configuration
+                if [ $cmdType = "Update" ] ; then
+                   cmd_update_configuration
+                else 
+                   cmd_configure_new  $updateMnt
+                fi
+                updateDone=1
                 ;;
              "Include"|"Exclude")
                 update_all_dirs $selection
@@ -509,27 +509,35 @@ function menu_pwl_update()
          0|3|4|5|6)                  # toggle project or operate on current
            #
            case "$selection" in
-             "fsCfg")
-                TEST_ONLY=${udTest:+":"}
-                cmd_update_from_packages
+             "CreateDir")
+                fsType=FS_DIR
+                if update_get_mount  $updateMnt ; then
+                   cmdType="New"
+                   menu_update_start
+                fi
                 ;;
-             "devMnt")                        # update from a device
+             "CreateDev")
                 fsType=FS_DEVICE
                 if update_get_mount  $updateMnt ; then
-                   if update_mount_device ; then
+                   if update_mount_device ; then 
+                      cmdType="New"
                       menu_update_start
                    fi
                 fi
                 ;;
-             "fsMnt")                         # update from mounted directory
-                fsType=FS_DIR
+             "UpdateDev")                        # update from a device
+                fsType=FS_DEVICE
                 if update_get_mount  $updateMnt ; then
-                   menu_update_start
+                   if update_mount_device ; then
+                      cmdType="Update"
+                      menu_update_start
+                   fi
                 fi
                 ;;
-             "fsList")                        # update based on file list
-                fsType=FS_LIST
-                if update_get_file_list ; then
+             "UpdateDir")                         # update from mounted directory
+                fsType=FS_DIR
+                if update_get_mount  $updateMnt ; then
+                   cmdType="Update"
                    menu_update_start
                 fi
                 ;;

@@ -1,0 +1,387 @@
+#!/bin/bash
+#
+# Disk Drive Block tester
+#
+# Quick test to verify which blocks on a device seem to be 
+# working.
+#
+#  1. Create a file of random numbers
+#  2. Fill the entire device with this file
+#  3. sync / umount / mount
+#  4. Compare all files - don't remove files that don't verify
+#     - 
+# History:
+#  4/19/99
+#    -added mount options and format file system type
+#  4/18/99 - V0.1
+#    - tested on one card; haven't verified all comand line parameters
+# 
+#  Created by Ralph Stickley, Datalux corp. 
+# command line parameter variable defaults
+#
+###
+#
+# pwl_mediatest 
+#     Fills device and verifies write operation.  Leaves files in areas
+#     that did not verify.
+#
+# usage: pwl_mediatest -d /dev/xxx 
+#                    [-b n] [-e type] [-m mntpt] [-r n] [-v] [-h] [-o ...]
+#
+#  -d /dev/xxx  - a device partition to be tested - Required
+#  -b n         - block size (in 1024 bytes) (default 100K)
+#  -c           - do fsck when mounting device
+#  -e           - erase the device - Recommended 
+#  -m mntpt     - specify a preferred mount point (default ./mnt)
+#  -o xxx       - options for mount - rest of command line goes here
+#  -r n         - number of random files to create (default 4)
+#  -t type      - type is "ext2", "vfat" or "msdos" (default ext2)
+#  -v           - verbose 
+#  -h           - this help message
+#
+# Common usage (off the shelf Compact Flash appears as /dev/hdc):
+#  pwl_mediatest -d /dev/hdc -e
+###
+MOUNTDIR=mnt   
+BLK_SIZE_K=100
+NUM_RAND_FILES=4
+device=""              # no default required parameter
+verbose="true"
+erase=""
+fsckOn=""
+MNT_OPTION=            #"-t msdos" # "-o sync"
+FS_TYPE="ext2"          # ext2 or msdos
+FS_CHK_OPTION="-nf"
+#
+# internal constants
+#
+VERSION=0.3
+FN_SRC="sBB_"
+FN_DEST="bb_"
+#
+#
+# usage - nice message
+#
+function usage()
+{
+   if [ ! "$1" = "" ] ; then
+      echo ""
+      echo "`basename $0` - V$VERSION - Error:"
+      echo "$*"
+      exit 1
+   fi
+   # parse from this file 
+   # - uses ### as delimiters (prints everything beginning from the first
+   #     ### found at the start of a line to the next ###)
+   # - remove all leading comment characters
+   #
+   sed -n /^###$/,/^###$/p $0 | sed s/^#*//g
+   exit 1
+}
+#
+# dev_check - 
+#
+function dev_check()
+{
+   if [ ! "$1" = "" ] ; then
+     [ -n "verbose" ] && echo "Checking File System on $device" 
+     #
+      # don't actually do the repairs, just test it
+      fsck.${FS_TYPE} ${FS_CHK_OPTION} $device  > /dev/null 2> /dev/null
+      if [ $? != 0 ] ; then
+            usage "Device Errors: File system check did not pass"
+      fi
+   fi
+}
+
+function dev_umount()
+{
+   sync ; sync 
+   #
+   # un-mount device and free mount point
+   #
+   umount $device > /dev/null 2> /dev/null 
+   umount $MOUNTDIR > /dev/null 2> /dev/null
+}
+
+#
+# dev_erase(do_erase) 
+#    unmounts and optionally erases device
+#
+function dev_erase()
+{
+   #
+   # if requested, erase and format the device
+   #
+   if [ -n "$1" ] ; then 
+     [ -n "verbose" ] && echo "Formatting $device" 
+     #
+     if [ "$FS_TYPE" = "ext2" ] ; then
+        mkfs.ext2 $device  > /dev/null 2> /dev/null
+     elif [ "$FS_TYPE" = "msdos" -o "$ERASE_TYPE" = "vfat" ] ; then
+        mkfs.msdos $device > /dev/null 2> /dev/null 
+     else
+        echo "Can not erase $device: Unknown file system type: $FS_TYPE"
+        exit 1
+     fi
+     #
+   fi
+   #
+   sync ; sync
+}
+
+#
+# dev_mount
+#
+function dev_mount()
+{
+   sync ; sync
+   # Mount the device at the mount point  
+   #
+   rm -rf $MOUNTDIR > /dev/null
+   if [ -d $MOUNTDIR ] ; then
+      echo "$MOUNTDIR could not be removed" >&2
+      exit 1
+   fi
+   mkdir $MOUNTDIR
+   #
+   if [ ! -d $MOUNTDIR ] ; then
+      echo "$MOUNTDIR was not created" >&2
+      exit 1
+   fi
+   mount $MNT_OPTION $device $MOUNTDIR > /dev/null 2> /dev/null
+   if [ ! "$?" = "0" ]  ; then
+      rm -rf $MOUNTDIR
+      echo "Device mount failure for $device at $MOUNTDIR" >&2
+      exit 1
+   fi
+   #
+   sync ; sync
+}
+
+#
+# dev_size - find out how big our device is
+#  - use output from df for our device
+#  - fourth column is available bytes in K bytes
+#
+function dev_size()
+{
+   #
+   df --block-size=1024 | grep $device > dev_info
+   #
+   dev_size=`gawk '{ print $4 }' dev_info`
+   rm -rf dev_info
+   #
+   if [ $dev_size -lt 1 ] ; then
+       echo "Could not determine device size"
+       exit 1
+   fi
+   #
+   if [ $dev_size -lt $BLK_SIZE_K ] ; then
+      echo "Device size of $dev_size is too small for block testing  $BLK_SIZE_K"
+      exit 1
+   fi
+   #
+   # determine number of files we can write
+   #
+   let "num_files = $dev_size / $BLK_SIZE_K "
+   let "num_files = num_files -1"
+}
+
+#
+# rand_make -make a couple of random files
+# 
+function rand_make()
+{
+   #
+   # create the random files if they don't exist 
+   #
+   fn=0
+   while [ $fn -lt $NUM_RAND_FILES ] ; do
+      randfn="$FN_SRC$fn"
+      if [ ! -f $randfn ] ; then 
+         echo -n "Creating $randfn..."
+         dd if=/dev/urandom of=$randfn bs=1k count=$BLK_SIZE_K 2> /dev/null
+         echo ".done."
+      fi
+      let "fn = fn + 1"
+   done
+}
+#
+# rand_load - load random files 
+#
+function rand_load()
+{
+   f_num=0
+   while [ $f_num -lt $num_files ] ; do
+      destfn="$FN_DEST$f_num" 
+      #
+      let "id = f_num % $NUM_RAND_FILES"
+      srcfn="$FN_SRC$id" 
+      #
+      # copy random source file to destination file at mount point
+      #
+      cp $srcfn $MOUNTDIR/$destfn
+      #
+      echo -n "."
+      let "f_num = f_num + 1"
+      #
+      # Periodic syncs - may make this device work better ??
+      #
+      let "cnt = f_num % 39"
+      if [ $cnt -eq 0 ] ; then
+         echo -n "S"
+         sync ; sync
+      fi
+   done
+   #
+   echo "S"
+   sync ; sync
+}
+
+#
+# rand_verify - verifies that the random files written are correct
+#
+function rand_verify()
+{
+   f_num=0
+   err_lst=""            # build list of invalid files
+   #
+   while [ $f_num -lt $num_files ] ; do
+      destfn="$FN_DEST$f_num" 
+      #
+      let "id = f_num % NUM_RAND_FILES"
+      srcfn="$FN_SRC$id" 
+      #
+      # compare the files
+      #
+      if [ -f $MOUNTDIR/$destfn ] ; then
+         res="`diff -q $srcfn $MOUNTDIR/$destfn`"
+         if [ -n "$res" ] ; then
+            echo -n X
+            err_lst="$err_lst $f_num"
+         else
+            rm -f $MOUNTDIR/$destfn
+            echo -n "."
+         fi
+      # else something else went wrong ?
+      fi
+      #
+      let "f_num = f_num + 1"
+   done
+   #
+   sync ; sync
+   echo ""
+}
+
+#
+# start here - parse commands - at least one command is required
+#
+if [ "$1" = "" ] ; then
+   usage
+fi
+#
+while [ $# -gt 0 ] ; do        # parse all arguments
+
+   case $1 in
+    -d)                        # device
+       shift
+       if [ "$1" = "" ] || [ ! -e "$1" ] ; then
+          usage "Device Error: please specify device node"
+       fi
+       device=$1
+    ;;
+    -b)                        # block resolution
+       shift
+       if [ "$1" = "" ] || [ $1 -lt 0 ] || [ $1 -gt 10000 ] ; then 
+          usage "Block Error: please specify block size"
+       fi
+       BLK_SIZE_K=$1
+    ;;
+    -c)                        # check file system for errors
+       fsckOn="true"      
+    ;;
+    -e)                        # erase device/device type
+       erase="true"
+    ;;                         # specify mount point
+    -m)
+       shift 
+       if [ "$1" = "" ] ; then 
+          usage "Mount Error: please specify a mount point directory"
+       fi
+       MOUNTDIR=$1
+    ;;
+    -t) 
+       shift
+       if [ "$1" = "" ] || ( [ "$1" != "ext2" ] && [ "$1" != "msdos" ] ) ; then
+          usage "Type Error: please specify one of ext2 or msdos"
+       fi
+       FS_TYPE="$1"
+       if [ "$1" = "msdos" ] ; then
+          FS_CHK_OPTION="-vV"
+       fi
+       MOUNT_OPTION="$MOUNT_OPTION -t $1"
+    ;;
+    -r)                        # number of random files to create
+       shift
+       if [ "$1" = "" ] ; then
+          usage "Random Error: option requires 'n' number of random files to create"
+       fi
+       NUM_RAND_FILES=$1
+    ;;
+    -v)                        # show more stuff
+       verbose="true"
+    ;;
+    -h) 
+       usage
+    ;;
+    -o)                        # all the rest of the parameters are for mount
+       shift
+       MOUNT_OPTION="$*"
+       break
+    ;;
+    # -V)  Version
+  esac
+
+  shift     # get next argument flag
+done
+#
+# requires device parameter
+#
+if [ ! -n "$device" ] || [ ! -b "$device" ] ; then
+   usage "Invalid Device specified: $device"
+fi
+#
+# main test code
+#
+   [ -n "verbose" ] && echo  "Testing Flash at $device"
+   dev_umount
+   dev_erase $erase
+   dev_check $fsckOn
+
+   [ -n "verbose" ] && echo  "Mounting $device at $MOUNTDIR"
+   dev_mount
+   dev_size
+   #
+   # build the test image for given size
+   #
+   [ -n "verbose" ] && echo "Testing in $BLK_SIZE_K K byte blocks ( $num_files files )"
+   rand_make
+   rand_load
+   #
+   [ -n "verbose" ] && echo "Verifying Files"
+   dev_umount
+   dev_check $fsckOn
+
+   dev_mount
+   rand_verify 
+   #
+   if [ -n "$err_lst" ] ; then
+      echo "Errors found for blocks:"
+      echo $err_lst
+   else
+      echo "No errors found"
+      echo ""
+   fi
+   dev_umount
+#

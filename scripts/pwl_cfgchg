@@ -1,36 +1,3 @@
-
-#
-#  build_changed_list( changedFiles, selectedFiles, dialogLst)
-#
-function build_changed_list()
-{
-   $decho "start build_changed_list"
-   #
-   changedList=$1
-   selectedList=$2
-   dialogLst=$3
-   #
-   #  Include options to add or remove all files from this package
-   #
-   echo -n > $dialogLst
-   echo -n " 'Add'      'Add Selected Files to $CFG_BASE Configuration' " >> $dialogLst
-   echo -n " 'Skip'     '----' "                 >> $dialogLst
-   echo -n " 'Include'  'Include all files' "    >> $dialogLst
-   echo -n " 'Exclude'  'Exclude all files' "    >> $dialogLst
-   #
-   fileCnt=0
-   for fn in `cat $changedList`; do
-      #
-      if grep -q "$fn" $selectedList ; then
-         echo -n " '$fn' '[*] $fn' " >> $dialogLst
-      else
-         echo -n " '$fn' '[ ] $fn' " >> $dialogLst
-      fi
-   done
-   #
-   $decho "done build_changed_list"
-}
-
 #
 # build_packages( pkgLst, showLstFn )
 #    pkgLst lists packages and the package filename
@@ -63,78 +30,6 @@ function build_packages()
 }
 
 #
-# int choose_files( changedFiles, selectedFiles, title )
-#     Returns: 0 when user is done
-#     Returns: 1 on 'ESC'
-#
-function choose_files()
-{
-   $decho "begin choose_files"
-   #
-   changedFiles=$1       # not written to
-   selectedFiles=$2      # updated as per user selections
-   title=$3
-   #
-   filesDone=0
-   #
-   # default to all selected
-   #
-   cp -f $changedFiles $selectedFiles
-   #
-   while [ "$filesDone" = "0" ] ; do
-      #
-      build_changed_list $changedFiles $selectedFiles .select.lst
-      #
-      show_files '"$title"' .select.lst 2> .result
-      retVal=$?
-      read selection < .result
-      filesDefault=$selection   # set global default variable
-      #
-      case "$retVal" in
-         1|255)                      # exit
-            retStatus=1
-            filesDone=1
-           ;;
-         2)                          # help
-            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_update.README
-            show_help pwl_update.README
-           ;;
-         0|3|4|5|6)                  # toggle project or operate on current
-           #
-           case "$selection" in
-             "Add")
-                retStatus=0
-                filesDone=1
-                ;;
-             "Include")                  # operation "Include"
-                cp -f $changedFiles $selectedFiles
-                ;;
-             "Exclude")
-                echo -n "" > $selectedFiles
-                ;;
-             "Total"|"Skip"|"skip")
-                xx=1 # do nothing
-                ;;
-             *)                      # list item selected
-                if grep -q $selection $selectedFiles; then
-                   grep -v $selection $selectedFiles > .tmp
-                   cp -f .tmp $selectedFiles
-                else
-                   echo $selection >> $selectedFiles
-                fi
-                ;;
-           esac       # end select item
-           ;;
-       esac    # end dialog response
-
-   done    # end while configuring
-   #
-   $RM -f .tmp .result
-   $decho "done choose_files"
-   return $retStatus
-}
-
-#
 # choose_package( listFile, fileInDuplicatePackages )
 #    shows a list of packages that all contain the same file
 #    user picks one or none
@@ -148,7 +43,7 @@ function choose_package()
    selection=""
    while [ "$retVal" != "0" ] ; do
 
-      show_files '"Select Package for: /$prjFn"' $showLst 2> .result
+      show_files "Select Package for: /$prjFn" $showLst 2> .result
       retVal=$?
       read selection < .result
       if [ "$retVal" = "1" ] ; then
@@ -157,91 +52,13 @@ function choose_package()
       if [ "$selection" = "skip" ] ; then
          retVal=1
       fi
-      grep "$selection:$prjFn" .index.list > .result
+      grep "$selection:$prjFn" $PKG_INDEX > .result
       if [ ! -s .result ] ; then
          retVal=1
       fi
    done
    return 0
 }
-
-#
-# update_dir_excludes - build string of --exclude=fn for all files
-#   not selected for comparision
-#
-function update_dir_excludes()
-{
-   exStr=""
-   for rootFn in `cat .root.lst` ;
-   do
-      rootChk=${rootFn%%+*}   # handle filenames with '+' in them
-      rootChk=${rootChk%%-*}  # handle filenames with '-' in them
-      if [ "$(( $rootChk ))" != "1" ] ; then
-         exStr="$exStr --exclude=$rootFn"
-      fi
-   done
-
-}
-function update_backup_restore()
-{
-   if [ ! -d $PWL_PRJ/backup ] ; then
-      return
-   fi
-   # restore custom directory
-   #
-   if [ -d $PWL_PRJ/backup/$CUSTOM_DIR ] ; then
-      rm -rf $PWL_PRJ/$CUSTOM_DIR
-      mv $PWL_PRJ/backup/$CUSTOM_DIR $PWL_PRJ
-   fi
-   #
-   # remove any new files created
-   #
-   rm -f $PWL_PRJ/*.*
-   rm -f $PWL_PRJ/.*.list
-   rm -f $PWL_PRJ/.project.*
-   #
-   # restore original list files
-   #
-   mv -f $PWL_PRJ/backup/*.* $PWL_PRJ        > /dev/null
-   mv -f $PWL_PRJ/backup/.*.list $PWL_PRJ    > /dev/null
-   mv -f $PWL_PRJ/backup/.project.* $PWL_PRJ > /dev/null
-   #
-   rm -rf $PWL_PRJ/backup
-}
-
-#
-# update_backup - moves all configuration files to backup directory
-#
-function update_backup()
-{
-   $decho "start update_backup"
-   #
-   # backup existing project configuration
-   #
-   if [ -d $PWL_PRJ/backup ] ; then
-      rm -rf $PWL_PRJ/backup
-   fi
-   mkdir $PWL_PRJ/backup
-   #
-   # copy custom files, they may be 'unselected' if they are found in
-   #  a package, but can be reselected if still in custom directory
-   #
-   cp -a $PWL_PRJ/$CUSTOM_DIR $PWL_PRJ/backup
-   echo -n "" >> $PWL_PRJ/backup/$CUSTOM_LST   #make sure we have a custom list file
-   #
-   # move all other files (not directories) to backup location
-   #
-   mv $PWL_PRJ/*.* $PWL_PRJ/backup
-   mv $PWL_PRJ/.*.list $PWL_PRJ/backup
-   #
-   # restore project default file
-   #
-   cp $PWL_PRJ/backup/$DEFAULT_CFG $PWL_PRJ
-   #
-   $decho project moved to backup dir
-   $decho "done update_backup"
-}
-
 
 #
 # make_package_index - build 'indexes' for packages and project list files
@@ -254,7 +71,7 @@ function make_package_index()
    # rebuild list index if not already built
    # TO DO: verify dates, rebuild if out of date
    #
-   if [ -f .index.list ] && [ -f .indexfiles.list ] ; then
+   if [ -f $PKG_INDEX ] && [ -f .indexfiles.list ] ; then
       xx=1  # do nothing
    else
       #
@@ -266,11 +83,11 @@ function make_package_index()
       # build index database of packages
       #
       $decho "building index file"
-      $PWL_LISTER --index .index.list
+      $PWL_LISTER --index -c $PKG_INDEX
       #
       # build list of all files found in packages
       #
-      cut -d":" -f2 .index.list | sort -u > .indexfiles.list
+      cut -d":" -f2 $PKG_INDEX | sort -u > .indexfiles.list
       #
    fi
    #
@@ -311,14 +128,14 @@ function update_package_select()
    local prjFn=$1
    #
    rm -f .result
-   pkgCnt="`grep -c $prjFn$ .index.list`"
+   pkgCnt="`grep -c $prjFn$ $PKG_INDEX`"
    if [ "$pkgCnt" = "0" ] ; then
       return 1
    fi
    #
    # build list of all packages containing given file
    #
-   grep "$prjFn$" .index.list | cut -f1 -d":" | sort -u > .tmp.lst
+   grep "$prjFn$" $PKG_INDEX | cut -f1 -d":" | sort -u > .tmp.lst
    if [ $pkgCnt = "1" ] ; then
       cat .tmp.lst | head -1 > .result
       return 0
@@ -484,23 +301,21 @@ function update_add_custom()
    #   if they are not wanted.
    #
    #
-   local gotOne="1"  # default for testing only
    userMode="C"
    if [ "$TEST_ONLY" = "" ] ; then
       #
       # specify soure file and destination path
       #
       if $PWL_CUSTOM --add $mntPath/$customFn "$customFn" ; then
-         gotOne=1
+        [ "$3" != "" ] && echo "Added new custom file: /$customFn" >> $3
       else
         [ "$3" != "" ] && echo "Custom file not found: /$customFn" >> $3
         gotOne=0
       fi
+   else
+       [ "$3" != "" ] && echo "To do: Add new customfile: /$customFn" >> $3
    fi
    #
-   if [ "$3" != "" -a "$gotOne" = "1" ] ; then
-      echo "Added new custom file: /$customFn" >> $3
-   fi
    userMode="I"
    #
    # $decho "done update_add_custom"
@@ -529,7 +344,7 @@ function compare_ignore()
    do
       if [ "$(( $rootFn ))" != "1" ] ; then
          # not enabled, remove from changes
-         grep -v "^. $rootFn" .tmp.lst > .tmp2.lst
+         grep -v "^..$rootFn" .tmp.lst > .tmp2.lst
          cp .tmp2.lst .tmp.lst
       fi
    done
@@ -557,16 +372,19 @@ function changes_by_dir()
    # change root to allow diff to work with links that point to "/"
    # diff the directories from the given mount point
    #
-   /usr/sbin/chroot $baseprj diff -raNq $newMntName $tmpMntName > .tmp.lst 2>&1
+   # /usr/sbin/chroot $baseprj diff -raNq $newMntName $tmpMntName >  .tmp.lst 2>&1
+   diff -raNq $newMntName $tmpMntName > .tmp.lst 2>&1
    if [ ! -s .tmp.lst ] ; then
       $decho "changes_by_dir none"
       return
    fi
    #
    # handle diff errors:
-   #   1. files that link to non-existant files
-   #   2. character/fifo/block file types
+   #   1. files that link to non-existant files - ignore
+   #   2. character/fifo/block file types   - ignore
    #   3. Only in mnt/xxx: filename (we remove Only, replace ": " with "/")
+   #   4. files ./mnt_tmp/x/x/xxx and ./mnt/x/x/xxx - leave this message
+   #   (now second field of diff results is a filename)
    #
    grep -v "No such file" .tmp.lst | grep -v "special file" | \
         grep -v "fifo" |sed "s/Only //g" | sed "s/: /\//g" > .tmp2.lst
@@ -582,7 +400,8 @@ $dmon
    # generate list of changed files (remove mounted directory prefix)
    #   and create a prefix to support compare_ignore
    #
-   cut -d" " -f2 .tmp2.lst | sed "s!$newMntName/!  !g"  > .changed.lst
+   cut -d" " -f2 .tmp2.lst | sed "s!$tmpMntName/!  !g" | \
+       sed "s!$newMntName/!  !g" > .changed.lst
 
 echo just filenames
 $dmon
@@ -602,16 +421,16 @@ $dmon
    #
    for newFn in `cat .changed.lst`; do
       #
-      if [ ! -e $newMntName/$newFn ] ; then
-         $decho "file to be removed: $newFn"
-$dmon
+      if [ ! -e $newMntName/$newFn ] ; then     # file not found in new fs
+         $decho "file to be removed: $newFn"    # - remove it from the project
+ # $dmon
          echo $newFn >> .removed.lst
 
-      elif [ ! -e $tmpMntName/$newFn ] ; then
-         $decho "file to be added: $newFn"
+      elif [ ! -e $tmpMntName/$newFn ] ; then   # file was found in new fs
+         $decho "file to be added: $newFn"      # - add it to the project
          echo $newFn >> .new.lst
 
-      else
+      else                                      # file exist but is changed
          $decho "files touched, to be added: $newFn"
          echo $newFn >> .touched.lst
       fi
@@ -620,6 +439,8 @@ $dmon
    $RM -f .tmp.lst .tmp2.lst .changed.lst
    $decho "end changes_by_dir"
 }
+
+#=============================================================================
 
 #=============================================================================
 #
@@ -638,8 +459,9 @@ function changes_prompt()
    # show all touched files - add user selected files as custom files
    #
    if [ -s .touched.lst ] ; then
-      choose_files .touched.lst .choosen.lst "Files Found that have Changed"
+      choose_files .touched.lst .choosen.lst "Files that do not match Packaged files"
       if [ "$?" = "1" ] ; then
+         $decho "none choosen"
          return
       else
          #
@@ -717,7 +539,6 @@ $dmon
    $RM -f .touched.lst .new.lst .removed.lst .choosen.lst
    $decho "end changes_prompt"
 }
-
 
 #
 # update_changes ( newMntName, tmpMntPoint  )
@@ -805,7 +626,7 @@ function cmd_update_configuration()
       oldDBG=$debugMode
       usrMode="C"
       $decho "Extracting all configured files"
-      (. ./pwlconfig -e $tmpMntPt)
+      (. ./pwlconfig --extract $tmpMntPt)
       sync                # wait for tar
       usrMode="I"
       debug_mode $oldDBG
@@ -831,306 +652,66 @@ $dmon
    #
    $decho "end cmd_update_configuration"
 }
-
+#=============================================================================
 #
-# converts current project configuration to use all packaged files
+# build a configuration from an existing file system
 #
-function cmd_update_from_packages()
+function cmd_configure_new()
 {
-   $decho "start cmd_update_from_packages"
+   local srcMntPt="$1"
    #
-   usrMode="C"
-   confirm_save     #force project to be saved anyhow, deletes all .tmp files
-   usrMode="I"
+   # backup existing project if any
+   #
+   if [ -d $PWL_PRJ ] ; then
+      echo "backing up $PWL_PRJ"
+      rm -rf ${PWL_PRJ}.bak
+      mv -f $PWL_PRJ $PWL_PRJ.bak
+   fi
+   mkdir -p $PWL_PRJ
    #
    # now build indexes, incase any temporary files were saved
    #
    make_package_index
-   if [ ! -s .prjFiles.list ] ; then
-      show_message "Project Configuration Not Found"\
-                   "The project could not be updated, no configuration files were found."
-      return
-   fi
+echo "made package index"
+$dmon
    #
-   update_backup      #remove all existing config files!!
+   # list all files on given device
    #
-   # find each project file from the package files
+   find $srcMntPt/*           | sort > .entries.list
+   find $srcMntPt/* -type d   | sort > .dirs.list
    #
-   tmpMsg="$PWL_PRJ/.Convert.msg"
+   # format list to remove root directory and add "  " for compare
    #
-   for prjFn in `cat .prjFiles.list` ; do
-      echo -n "."
+   comm -23 .entries.list .dirs.list | sed "s!^${srcMntPt}\/!  !g" > .files.list
+   #
+   #
+   # remove any directories/files not requested by user
+   #
+   compare_ignore .files.list
+   #
+   # check every file to find which package it may come from
+   #   -add as package or custom file
+   #
+   udFnPr="1"  # take first package, not optimized, but should work
+   #
+   echo -n "" > .newresults
+   for fn in `cat .files.list` ; do 
       #
-      # give priority to package files - previous custom file may
-      #     be packaged. Of course, custom file may be unique for
-      #     this project...user must re-select custom files
-      #
-      if  update_add_package $prjFn $tmpMsg ; then
-         #
-         # project file found in a package
-         #
-         :
-      elif grep -q "$prjFn" $PWL_PRJ/backup/$CUSTOM_LST ; then
-         #
-         # new file was previously a custom file
-         #
-         update_add_custom $prjFn $PWL_PRJ/backup/$CUSTOM_DIR $tmpMsg
-      #
+      if grep -q ":$fn$" $PKG_INDEX ; then   
+         echo -n "."
+         update_add_package $fn  .newresults  2> /dev/null
       else
-         # $decho "Project configuration was file not in current packages"
-         echo "Project file not found $prjFn" >> $tmpMsg
+         echo -n "c"
+         update_add_custom  $fn  $srcMntPt .newresults 2> /dev/null
       fi
    done
    #
-   # sort and show results for files not found or added
+   sort .newresults > .results
+   show_results .results
    #
-   usrMode="I"
-   sort -u $tmpMsg > $PWL_PRJ/Convert.msg
-   if [ "$TEST_ONLY" = ":" ]; then
-      show_results $PWL_PRJ/Convert.msg "Update Configuration Results (No Changes Made!)"
-      update_backup_restore
-   else
-      show_results $PWL_PRJ/Convert.msg "Update Configuration Results"
-      confirm_save
-   fi
+   $RM .newresults .results
    #
-   # save configuration (allow restore to previous configuration ?)
-   #
+   confirm_save
+   $decho "done cmd_configure_new"
 }
 
-# ###########
-# ##########  OLD STUFF ??
-# ##########
-#
-# cmd_update_verify( mntName, diffFn )
-#     Checks the different file, diffFn with custom source file or
-#     tarred source file. diffFn IS NOT prefixed with leading "/"
-#     (since tar list files don't have this either)
-#
-function cmd_update_verify()
-{
-   $decho "start cmd_update_verify"
-   mntName="$1"
-   diffFn="$2"
-   msgFn="$3"
-   #
-   # locate diffFile in the configuration list files
-   #
-   if [ "$diffFn" = "" ] ; then
-      $decho "No update file specified"
-      return
-   fi
-   #
-   # check for entire filename at end of line of all configuration files
-   # **files could appear three or more times in a configuration!
-   #   Originally from a package, duplicated in another package or
-   #   then tweaked and added as a custom file. Highest priority goes to
-   #   custom file, then to package files.
-   #
-   # if NOT in package configuration or custom list files
-   #
-   gotOne=0
-   if ! grep -q "$diffFn$" .prjFiles.list ; then
-      #
-      $decho "Changed File $diffFn not in project list files"
-      #  Different file not part of project configuration
-      #   - Check for new file as part of existing package
-      #     or add as a new custom file
-      #
-      if [ "$udPkg" = "1" ] ; then
-         #
-         # if this file exists as a packaged file, use that one
-         #
-         if update_add_package $diffFn $msgFn ; then
-            $decho "new file $diffFn is from existing package"
-            gotOne=1
-         fi
-      fi  # end package check requested
-   #
-   #  could be a custom file
-   #
-   elif [ -s $PWL_PRJ/$CUSTOM_LST ] && grep -q "$diffFn$" $PWL_PRJ/$CUSTOM_LST ; then
-      #
-      $decho "Changed file $diffFn is currently a custom file"
-      #
-      # custom file was touched
-      #
-      if update_prompt CUSTOM_NEWER $diffFn  ; then
-         echo "Newer custom file updated: /$diffFn" >> $msgFn
-         $TEST_ONLY $PWL_CUSTOM --refresh $mntName$diffFn "$diffFn"
-      fi
-      gotOne=1
-   fi
-   #
-   # otherwise add as completely new custom file
-   #  (without link to custom source)
-   #
-   if [ "$gotOne" = "0" ] ; then
-      if update_prompt NEW $1 ; then
-         update_add_custom $diffFn $mntName $msgFn
-      fi
-   fi
-   #
-   $decho "end cmd_update_verify"
-}
-
-# changes_type
-#    the given file lists differences between two systems
-#    <"new file"      new or different than old file
-#    >"old file"      not found on new FS or different than new file
-function changes_type()
-{
-  #
-  # seperate list of changes
-  #  get touched files - duplicate items were files that changed
-  #
-  cut -f2- -d" " $chLst | uniq -d   > .touched.lst
-  #
-  grep "^<" $chLst | cut -f2- -d" " > .new.lst
-  #
-  grep "^>" $chLst | cut -f2- -d" " > .removed.lst
-}
-
-#
-# format ls_file - reformats an ls -lR file into:
-#    filename size
-#
-function format_ls_file()
-{
-   $decho "start format_ls_file"
-   #
-   # parse line and rebuild to new format
-   #
-   gawk -F" " '{
-      if ($1 ~ ":$" ) {             # found directory names ends in ":"
-         split($1, curDir,":");     #  remove ":"
-      }
-      else                          # re-format
-         if ( NF == 9 )              #  note: Device nodes ignored!
-            printf("%s/%s %s %s %s %s\n", curDir[1],  $9, $5, $6, $7, $8 );
-      }' $1 > .tmp.lst
-   #
-   # remove any leading "." characters and
-   #
-   if [ "$2" != "" ] ; then
-      # remove base directory
-      #
-      sed "s/^\.//g" .tmp.lst | sed "s!$2!!g"    | sort -u > .tmp2.lst
-
-   else
-      # -or - add leading slash
-      #
-      sed "s/^\.\///g" .tmp.lst | sed "s/.*/\/&/g" | sort -u > .tmp2.lst
-   fi
-   #
-   # if not comparing time stamps, remove time data
-   #
-   if [ "$udTime" = "1" ] ; then
-      cp .tmp2.lst $1
-   else
-      cut -f1,2 -d" " .tmp2.lst > $1
-   fi
-   #
-   $RM -f .tmp2.lst .tmp.lst
-   $decho "end format_ls_file"
-}
-
-#
-# compare_ls( oldFn, newFn, result file )
-#    - compares two directory listing files (based from same dir!)
-#      returns new file .cmp.lst
-#
-function compare_ls()
-{
-   $decho "start compare_ls"
-   local oldFn=$1
-   local newFn=$2
-   local cmpResultsFn=$3
-   #
-   # compare directory listings to determine files that differ
-   #   (remove date / timestamp if any, after the compare)
-   #
-   diff $newFn $oldFn |  cut -f1-2 -d" " | grep "\/" | sort -u > .datechg.fs
-   #
-   # ignore directories not selected
-   #
-   compare_ignore .datechg.fs $cmpResultsFn
-   #
-   #
-   $decho "end compare_ls"
-}
-
-#
-# changes_by_file(newMntName, tmpMntName, w_Date )
-#      creates a list of files (.changes.fs) that have changed
-#      based on comparing each filename (optionally, check file date)
-#
-# returns: .changes.fs
-#
-function changes_by_file()
-{
-   $decho "start changes_by_file"
-   newMntName=$1
-   tmpMntName=$2
-   if [ "$3" != "" ] ; then # compare with dates
-      findFmt='%p %t\n'     # may be a pain if extracted dates
-                            # differ from file dates
-   else
-      findFmt='%p\n'        # else just compare file names
-                            # (may miss some changes i.e a file
-                            # with 1 byte changed from A to B
-   fi
-   #
-   # capture directory listing of given file system (the NEW one)
-   #
-   loc=`echo $PWD`
-   cd $newMntName
-   find * -printf "$findFmt" 2> $loc/.err | sort -u > $loc/.new.fs
-   cd $loc
-   #
-   # capture directory listing of our temporary file system (the OLD one)
-   #
-   cd $tmpMntName
-   find * -printf "$findFmt" 2> $loc/.err | sort -u > $loc/.old.fs
-   cd $loc
-   #
-   # now do the compare
-   #
-   compare_ls .old.fs .new.fs .changes.fs
-   #
-   $RM .new.fs .old.fs
-   $decho "end changes_by_file"
-}
-
-#
-# changes_from_list( newMntName, fileList )
-#  - creates .changes.fs file by comparing existing
-#   configuration and given list file
-#
-function changes_from_list()
-{
-   $decho "start changes_from_list"
-   #
-   tmpMntName="$1"
-   cp $2 .new.fs
-   #
-   # list files for "old" (just extracted) file system
-   #
-   loc=`echo $PWD`
-   cd $tmpMntName
-   find * -type f -printf "$findFmt" 2> $loc/.err | sort -u > $loc/.old.fs
-   cd $loc
-   #
-   # modify ls directory listings into "%p %s %t" format, remove
-   #  base directory if required
-   #
-   format_ls_file .old.fs
-   #
-   compare_ls .old.fs .new.fs .changes.fs
-   #
-   $RM -f .old.fs .cmp.lst .new.fs
-   $decho "end changes_from_list"
-}
-# ###########
-# ###########  OLD STUFF!!!
-# ###########

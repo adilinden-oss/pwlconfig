@@ -9,11 +9,19 @@
 #
 # execute this script from Embedded_build or Embedded_Build/scripts
 #
-VER_PWL_LISTER="0.2"
+#  TODO: 
+#    only build indexes if required based on date of files
+#
+#  History
+#    v0.3 0 06/20/00 - added --source to build index from rpm files
+#
+VER_PWL_LISTER="0.3"
 #
 # Find path to project
 #
 PKG_PATH="packages"
+RPMS_PATH="RPMS/"
+#
 if [ ! -d $PKG_PATH ] ; then
    PKG_PATH="../packages"
 fi
@@ -22,12 +30,23 @@ if [ ! -d $PKG_PATH ] ; then
    exit
 fi
 #
+if [ ! -d $RPMS_PATH ] ; then
+    RPMS_PATH="../RPMS/"
+fi
+RPM=./bin/rpm
+if [ ! -x $RPM ] ; then
+   echo "rpm version 3.0.3 must be in ./bin"
+   exit
+fi
+#
 # parse parameters - one parameter per invocation
 #
 if [ "$1" = "--help" ] ; then
    echo -e "\nUsage: `basename $0` [ [--find filename [...] ] | [ --remove ] ]"
    echo -e "\n   --find           searches all list files for all given filenames"
-   echo -e   "   --remove         deletes all existing list files"
+   echo -e   "   --remove [file]  deletes all [or one] existing list files"
+   echo -e   "   --list   [file]  create  all [or one] list for existing tar files"
+   echo -e   "   --source         list source file for all packages as src:pkg_file"
    echo -e   "   --index [file]   generates one file of all packages and their contents"
    echo -e   "                    (default is .index.list) as pkg:pkg_file"
    echo ""
@@ -36,13 +55,50 @@ if [ "$1" = "--help" ] ; then
 #
 # Index option - generate one big file of all packages and their files
 #
-elif [ "$1" = "--index" ] ; then
+elif [ "$1" = "--source" ] ; then
+   #
+   if [ ! -d $RPMS_PATH ] ; then
+      echo "Source path not found: $RPMS_PATH"
+      exit
+   fi
    #
    if [ "$2" != "" ] ; then
       indexFn="$2"
    else
+      echo -e "Creating .source.list"
+      indexFn=".source.list"
+   fi
+   #  list as group:name::source_file of all source files available
+   #
+   echo -n "" > .tmpsrc
+   for listFn in `find $RPMS_PATH -name "*.rpm"` ; do
+         $RPM -q --queryformat "%{GROUP}:%{NAME}::" -p $listFn >> .tmpsrc
+         echo `basename $listFn` >> .tmpsrc
+   done 
+   # remove spaces from group names
+   #
+   sed "s/ /_/g" .tmpsrc | sort -u > $indexFn
+   rm -rf .tmpsrc
+   #
+elif [ "$1" = "--index" ] ; then
+   #
+   shift
+   makeNew=0
+   if [ "$1" = "-c" ] ; then # only create if not existing
+      makeNew=1
+      shift
+   fi
+   if [ "$1" != "" ] ; then
+      indexFn="$1"
+   else
       echo -e "Creating .index.list"
       indexFn=".index.list"
+   fi
+   if [ "$makeNew" = "1" ] ; then
+      if [ -f "$indexFn" ] ; then 
+         # file exists, do nothing
+         exit
+      fi
    fi
    #
    # for every package list file, pre-pend list filename to everyline
@@ -96,22 +152,45 @@ elif [ "$1" = "--remove" ] ; then
    #
    #  remove existing list files
    #
-   for lstFn in `find $PKG_PATH -name *.list`; do
+   if [ "$2" != "" ] ; then
+      # remove one given file
       #
-      echo Removing file $lstFn
+      lstPath=`dirname $tarFn`
+      lstFn=$lstPath/`basename $tarFn .tar`".list"
       rm -f $lstFn
-   done
+   else
+      # remove the all!
+      #
+      for lstFn in `find $PKG_PATH -name *.list`; do
+         #
+         echo Removing file $lstFn
+         rm -f $lstFn
+      done
+   fi
 #
-else
-   # build list files from tar files
+elif [ "$1" = "--list" -o "$1" = "" ] ; then
    #
-   for tarFn in `find $PKG_PATH -name *.tar` ; do
+   tarFn=$2
+   if [ -f "$tarFn" ] ; then
+      # build list file for a single tar file
+      #
       lstPath=`dirname $tarFn`
       lstFn=$lstPath/`basename $tarFn .tar`".list"
       #
-      echo "Processing.... $lstFn"
-      tar tf $tarFn > $lstFn
-   done
+      echo "Created Listing from $tarFn"
+      tar -tf $tarFn > $lstFn
+      #
+   else
+      # build list files for all tar files
+      #
+      for tarFn in `find $PKG_PATH -name *.tar` ; do
+         lstPath=`dirname $tarFn`
+         lstFn=$lstPath/`basename $tarFn .tar`".list"
+         #
+         echo "Processing.... $lstFn"
+         tar -tf $tarFn > $lstFn
+      done
+   fi
 fi
 
 #

@@ -21,9 +21,7 @@
 #  <parmId>        - one of the parameters defined in the defaults file
 ###
 #
-# History:
-#   v0.85 - updated version number for release, no in-file help yet
-#   v0.1 - created
+# History see CHANGES.pwlconfig
 #
 # Comments:
 #  The project defaults are contained in a defaults shell file.
@@ -35,7 +33,7 @@
 ######
 #pwl_defaults.README
 #
-#  The project defaults define parameters that let you build your
+#  The project configurations define parameters that let you build your
 #  project for several different target devices.
 #
 #  For initial system development, building a file system on a floppy
@@ -64,45 +62,91 @@
 #     Select Save here to capture your changes at anytime.  Also, every
 #     time you save your project the defaults are also saved.
 #
-#  Parameters:
+#  Global Parameters:
 #
-#    Boot Image Path/name: /boot/doc2000
+#    Project Mount Point: ./project/name/mnt
+#       This is a directory where your project will be "extracted" to.
+#       Change this name if you want a backup of your file system.
+#
+#    Project Custom Source Path: /root/custom
+#       This is a directory where your custom files reside. Consider
+#       this the root of a file system tree where custom files are
+#       taken from and inserted into the extracted file system.
+#
+#    Device Mount Point: ./mnt
+#       This is where pwlconfig will default to mounting your device.
+#
+#    Boot Image Name: bzImage
 #       This is the name of the kernel file you created when you
 #       re-built your kernel (or choose a package kernel file).
 #       These are usually given names like bzImage, vmlinuz, doc2000
-#       and so on
+#       and so on.
 #
-#    Boot Label for Lilo: pwlinuz
-#       When LILO boots your device, you can usually press TAB to see
-#       a list of kernels to boot from.  The name that appears is the
-#       name you specify here.
+#    Ramdisk Image Name: ramdisk
+#       This is the name of the ramdisk file the target build script
+#       may create.
 #
-#    Boot Location: /dev/fla1
-#       When your device is the booting device, it is mounted as a device
-#       at this "location". This does not refer to your home town.
+#    Initrd Image Name: initrd
+#       This is the name of the initrd file the target build script
+#       may create.
 #
-#    Device Mount Point
-#       This is where pwlconfig will default to mounting your device.
-#       You will be prompted to change this, but set this right and
-#       you don't have to type it in.
+#  Boot Loader Options:
 #
-#    Device Name
-#       This is a nice name that shows up on your main menu. Don't make
-#       it too long, you'll look silly.
+#    Boot Label: linux
+#       When LILO or syslinux boots your device, you can usually press 
+#       TAB to see a list of kernels to boot from.  The name that appears
+#       is the name you specify here.
 #
-#    Device Partition
-#       The Partition number, 1, 2....  For Floppy disks, this may start
-#       with zero (0).
+#    Boot Prompt Timeout: 5
+#       This is the time LILO or syslinux give you to press TAB or type
+#       the boot image to load at the boot prompt.
 #
-#    Device Type
-#       This string must be entered as shown.  Pick one.
+#    VGA Mode: normal
+#       This is the VGA mode used for framebuffer operation.
 #
-#    Device Type Node
-#       This is the basis for your device.  Lilo needs this.
+#  Floppy Target Parameters
 #
-#    Project Mount Point
-#       This is a directory where your project will be "extracted" to.
-#       Change this name if you want a backup of your file system.
+#    Floppy Device: /dev/fd0
+#       The device onto which the target build script will install the
+#       system if a floppy based target is selected.
+#
+#    Free Space on Ramdisk: 500
+#       The amount of free space in kB on the uncompressed ramdisk.
+#
+#  IDE Flash (or HD) Target Parameters
+#  
+#    Target Device: /dev/sda
+#       The target device name on the development system your PeeWeeLinux
+#       system will be build on. Be careful here. The target build script
+#       will destroy any existing content on this device!
+#
+#    Boot Device: /dev/hda
+#       How the target device will be known as on the final target sytem.
+#       It is unlikely you will have to change this parameter.
+#
+#  Single Ramdisk Parameters
+#
+#    Free Space on Ramdisk: 2000
+#       The amount of free space in kB on the uncompressed ramdisk for a
+#       target sytem with a single ramdisk.
+#
+#  Multiple Ramdisk Target Parameters
+#
+#    Free Space on /dev Ramdisk: 1000
+#       The amount of free space in kB on the /dev ramdisk. Note that even
+#       though device don't consume space they consume inodes. The target
+#       build script tries to create as many inodes as possible for the 
+#       /dev ramdisk.
+#
+#    Free Space on /etc Ramdisk: 100
+#       The amount of free space in kB on the /etc ramdisk. Since the /etc
+#       partition is likely to contain configuration files only that one
+#       wouldn't expect to change dramatically there shouldn't be any need
+#       for a serious amount of empty space.
+#
+#    Free Space on /home Ramdisk: 500
+#       The amount of free space in kB on the /home ramdisk.
+#
 #
 #END
 ######
@@ -118,7 +162,11 @@ else
   echo "script pwl_functions not found"
 fi
 #
-PWL_DEFAULTS_VER=${PWL_REL_VER}".1"
+PWL_DEFAULTS_VER=${PWL_REL_VER}".2"
+# make sure we have a version number
+if [ -z "$PWL_VER" ]; then
+    PWL_VER="$PWL_DEFAULTS_VER"
+fi
 #
 #
 #=============================================================================
@@ -126,7 +174,7 @@ PWL_DEFAULTS_VER=${PWL_REL_VER}".1"
 # The following section contains default parameters for various devices
 # This section is parsed to create the initial default configuration file.
 #
-#--COMMON
+#VARIABLES
 #
 ##  Configuration file for Pee Wee Linux project
 ##  Execute this script to assign project parameters
@@ -136,97 +184,81 @@ PWL_DEFAULTS_VER=${PWL_REL_VER}".1"
 ##
 ## Project defaults (some may be overridden interactively)
 ##
-#export prjMnt="mnt"                    # Prompt: Project Mount Point
-#export prjCustomSrc="/usr/local/src"   # Prompt: Project Custom Source File path
-#export deviceMnt="./mnt"               # Prompt: Device Mount Point
-#export bootLabel="pwlinuz"             # Prompt: Boot Label for LILO
 #
-#--COMMON
-#--DOC
-##  Initial defaults from Disk-On-Chip parameters
+##SEC Global configuration parameters
 #
-#export deviceType="DOC"                # Prompt: Device Type (DOC FLOPPY CDROM FLASH)
-#export deviceName="Disk-On-Chip"       # Prompt: Device Name
-#export deviceLoc=/dev/fla              # Prompt: Device type node (/dev/xxx)
-#export devicePartition="1"             # Prompt: Device Partition
-#export bootKernel="/boot/doc2000"      # Prompt: Boot Image Path/name
-#export bootDevice="/dev/fla1"          # Prompt: Boot Location
+#export prjMnt="mnt"                   # Prompt: Project Mount Point
+#export prjCustomSrc="/root/custom"    # Prompt: Project Custom Source File path
+#export rd_mount="./mnt"               # Prompt: Device Mount Point
+#export rd_kernel="bzImage"            # Prompt: Boot Image Name
+#export rd_ramdisk="ramdisk"           # Prompt: Ramdisk File Name
+#export rd_initrd="initrd"             # Prompt: Initrd File Name
 #
-#--DOC
+##SEC Boot loader options
 #
-#--FLASH
-##   Initial defaults from flash disk (IDE type) parameters
+#export rd_bp_label="linux"            # Prompt: Boot Label
+#export rd_bp_time="5"                 # Prompt: Boot Prompt Timeout
+#export rd_bp_vga="normal"             # Prompt: VGA Mode
 #
-#export deviceType="FLASH"              # Prompt: Device Type (DOC FLOPPY CDROM FLASH)
-#export deviceName="Flash Disk"         # Prompt: Device Name
-#export deviceLoc="/dev/hdc"            # Prompt: Device type node (/dev/xxx)
-#export devicePartition="1"             # Prompt: Device Partition
-#export bootDevice="/dev/hda1"          # Prompt: Boot Location
-#export bootKernel="/boot/vmlinuz"      # Prompt: Boot Image Path/name
+## Some project specific parameters not changed in pwl_defaults
+## Delimited by leading space
+# export target_scheme="comp_rd_ext2"  # Prompt: Target
+# export pwl_version=""                # Prompt: PeeWeeLinux version
 #
-#--FLASH
+##SEC floppy target configuration parameters
 #
-#--FLOPPY
-##  Initial defaults from Floppy drive parameters
+#export rd_floppy="/dev/fd0"           # Prompt: Floppy Device
+#export rd_ramdisk_fd_free="500"       # Prompt: Free Space on Ramdisk
 #
-#export deviceType="FLOPPY"             # Prompt: Device Type (DOC FLOPPY CDROM FLASH)
-#export deviceName="Floppy Disk"        # Prompt: Device Name
-#export deviceLoc="/dev/fd"             # Prompt: Device type node (/dev/xxx)
-#export devicePartition="0"             # Prompt: Device Partition
-#export bootDevice="/dev/fd0"           # Prompt: Boot Location
-#export bootKernel="/boot/vmlinuz"      # Prompt: Boot Image Path/name
+##SEC ide flash target (or HD) configuration parameters
 #
-#--FLOPPY
+#export rd_target="/dev/sda"           # Prompt: Target Device
+#export rd_boot="/dev/hda"             # Prompt: Boot Device on Target System
 #
-#--CDROM
-##  Initial defaults from CDROM drive parameters
+##SEC single ramdisk target configuration parameters
 #
-#export deviceType="CDROM"              # Prompt: Device Type (DOC FLOPPY CDROM FLASH)
-#export deviceName="CD-Rom Drive"       # Prompt: Device Name
-#export deviceLoc="/dev/cdrom"          # Prompt: Device type node (/dev/xxx)
-#export devicePartition=""              # Prompt: Boot Location
-#export bootDevice="/dev/hda1"          # Prompt: Boot Location
-#export bootKernel="/boot/vmlinuz"      # Prompt: Boot Image Path/name
+#export rd_ramdisk_free="2000"         # Prompt: Free Space on Ramdisk
 #
-#--CDROM
+##SEC multiple ramdisk target configuration parameters
+#
+#export rd_dev_free="1000"             # Prompt: Free Space on /dev Ramdisk
+#export rd_etc_free="100"              # Prompt: Free Space on /etc Ramdisk
+#export rd_home_free="500"             # Prompt: Free Space on /home Ramdisk
+#
+#END
+#
 #
 #=============================================================================
 #
-# make_default( deviceTYPE,  [ default_file ] )
+# make_default( [ default_file ] )
 #     builds initial default parameters file for given device type
+#     Parses the defaults found in this file (above)!
 #
 function make_default()
 {
    $decho "start make_default $*"
 
-   if [ "$2" != "" ] ; then
-      dftFile="$2"
+   if [ "$1" != "" ] ; then
+      dftFile="$1"
    else
       dftFile="$PWL_PRJ/.$DEFAULT_CFG"
    fi
    $decho "build default file $dftFile"
    #
-   # parse default section to define all common parameters
+   # parse default section to define all parameters
    #
-   sed -n /^#--COMMON/,/^#--COMMON/p $0 | sed s/^#//g > .dft.tmp
+   sed -n /^#VARIABLES/,/^#END/p $0 | grep -v '^#VARIABLES' | grep -v '^#END' | sed s/^#//g > $dftFile
    #
-   # define device type specific parameters for given device type
-   #
-   sed -n /^#--$1/,/^#--$1/p $0 | sed s/^#//g | cat >> .dft.tmp
-   #
-   # clean it up
-   #
-   grep -v "\-\-" .dft.tmp > $dftFile
-   #
-   $RM .dft.tmp
    $decho "done make default"
 }
 
 #
-# default_change ( parameterName, parameterValue )
+# default_change ( parameterName, [ parameterValue, [ padding ] ] )
 #
 function default_change()
 {
+   $decho "start default_change $*"
+   #
    if [ "$1" = "" ] ; then
      return
    fi
@@ -239,13 +271,17 @@ function default_change()
    #
    # parse the line
    #
-   tmpName=${lineIn%%=*}
-   parmName=${tmpName##export }
+   tmpName="${lineIn%%=*}"
+   parmName="${tmpName##*export }"
    #
-   parmLine=${lineIn##*=}
-   tmpValue=${parmLine%%#*}
-   parmValue=`echo $tmpValue | sed s/\"//g`
+   parmLine="${lineIn#*=}"          # allow "=" in parmValue
+   tmpValue="${parmLine%#*}"       # allow "#" in parmValue
    #
+   # remove quotes for better visibility
+   #
+   parmValue=`echo "$tmpValue" | sed s/\"//g`  
+   #
+   promptValue=""
    promptValue=${lineIn##*Prompt: }
    #
    # prompt or use given new value
@@ -268,15 +304,11 @@ function default_change()
    else
       newValue=$2
    fi
-   # remove old value
+   # lets use sed to replace the value and keep the order of the file
+   sed "/${chgParm}/s"'\.*\'"${3}export $parmName=\"$newValue\"   # Prompt: $promptValue"'\' $DFT_FILE_TMP > .dft.tmp
    #
-   grep -v "$parmName" $DFT_FILE_TMP > .dft.tmp
-   #
-   # insert new value
-   #
-   echo  "export $parmName=\"$newValue\"   # Prompt: $promptValue" >> .dft.tmp
    cp .dft.tmp $DFT_FILE_TMP
-
+   #
    $decho "done default_change"
 }
 
@@ -295,6 +327,7 @@ function default_save()
    $decho "end default_save"
 }
 
+
 #
 # default_reset( [device type] )
 #     prompts for device type or uses given device type to generate
@@ -304,39 +337,12 @@ function default_reset()
 {
    $decho "start default_reset"
    #
-   # prompt for new device Type
+   make_default
    #
-   if [ "$1" = "" ] ; then
-      get_string "Select new default device for project: `basename $PWL_PRJ` " \
-                 "Enter device DOC, FLOPPY, CDROM or FLASH" \
-                 newType $deviceType
-      #
-      if [ "$?" != "0" ] ; then
-         $decho "end default_reset 1"
-         return 1
-      fi
-      if [ -z "$newType" ] ; then
-         $decho "end default_reset none 1"
-         return 1
-      fi
-   else
-      newType=$1
-   fi
-   case "$newType" in
-      "DOC"|"FLOPPY"|"CDROM"|"FLASH")
-           #
-           # build the default configuration file for this type
-           #
-           make_default $newType
-           deviceType=$newType
-      ;;
-      *)
-          show_message "Unknown Type" \
-             "Device type $newType is not known"
-            $decho "end default_reset unknown 1"
-            return 1
-      ;;
-   esac
+   # Update version info
+   #
+   default_change pwl_version $PWL_VER " "
+   #
    $decho "done default_reset"
    return 0
 }
@@ -349,14 +355,8 @@ function default_setup()
 {
   $decho "start default_setup"
   #
-  if [ ! -f "$PWL_PRJ/$DEFAULT_CFG" ] ; then      # no configuration found
-     if [ "$deviceType" = "" ] ; then                # must specify device type
-        usage "Device type not specified - defaults not created"
-     fi
-     default_reset $deviceType                       # generate default config file
-     if [ $? != "0" ] ; then
-        usage "Device type not specified - defaults not created"
-     fi
+  if [ ! -f "$PWL_PRJ/$DEFAULT_CFG" ] ; then    # no configuration found
+     default_reset                              # generate default config file
   fi
   #
   # make sure we have a temporary default
@@ -382,7 +382,7 @@ function show_defaults()
    echo -n $DIALOG --title "$1" \
                    --backtitle \"$backtitle\"       \
                    --menu                           \
-"'Select operation or default parameter           Project: $CFG_BASE'" \
+"'Select operation or configuration parameter           Project: $CFG_BASE'" \
               $ROWS $COLS $((ROWS-8)) \
               " '$defaultsDefault' " > .dialog
 
@@ -398,19 +398,25 @@ function build_defaults()
 {
    $decho "start build_defaults"
 
-   echo -n "'Reset'  'Reset Project Defaults' " > $1
+   echo -n "'Reset'  'Reset Project Configuration' " > $1
    #
    if [ ! -f "$2" ] ; then
       return
    fi
-   echo -n "'Save'   'Save Project Defaults'             \
+   echo -n "'Save'   'Save Project Configuration'             \
             'skip'    '----' "                           >>$1
    #
-   # remove any comments and blank lines, sort by variable name
+   # Add target defaults
    #
-   cat $2 | grep -v "^#" | grep -v "^[ ]*$" | sort -t: +1 | cat > .dft.tmp
+   echo -n " 'Sel'    'Target: $target_scheme_desc -->' " >>$1
+   #
+   # remove any lines that start with spaces and blank lines
+   #
+   cat $2 | grep -v "^ " | grep -v "^[ ]*$" | cat > .dft.tmp
    #
    # process commands
+   #
+   cp .dft.tmp .xx.dft.tmp
    #
    while [ -s .dft.tmp ] ; do
          #
@@ -421,20 +427,37 @@ function build_defaults()
          tail +2 .dft.tmp | cat > .xx
          cp .xx .dft.tmp
          #
-         # parse the line
+         # parse the line  format is:
+         #  export [ parmName ] = [ parmValue ] # Prompt: [ promptValue ]
+         #  ^^^^^^
+         # Optional
          #
-         tmpName=${lineIn%%=*}
-         parmName=${tmpName##export }
+         # Sections headings are defined to begin with #SEC
          #
-         parmLine=${lineIn##*=}
-         parmValue=${parmLine%%#*}
-         #
-         promptValue=${lineIn##*Prompt: }
-         #
-         # output for dialog
-         #
-         echo -n  " '$parmName' '$promptValue: $parmValue' " >> $1
-         #
+         if `echo $lineIn | grep -q '^#'` ; then    # this matches a comment 
+             #
+             if `echo $lineIn | grep -q '^#SEC'`; then
+                 #
+                 secTitle=`echo $lineIn | sed 's/^#SEC //'`
+                 #
+                 echo -n " 'skip'   '--- ${secTitle} ---' " >>$1 
+                 #
+             fi
+         else                                    # It should be a parameter
+             #
+             tmpName="${lineIn%%=*}"
+             parmName="${tmpName##export }"
+             #
+             parmLine="${lineIn#*=}"             # allow "=" in parmValue
+             parmValue="${parmLine%#*}"
+             #
+             promptValue=${lineIn##*Prompt: }
+             #
+             # output for dialog
+             #
+             echo -n  " '$parmName' '$promptValue: $parmValue' " >> $1
+             #
+         fi
    done
    #
    $RM  .dft.tmp
@@ -479,6 +502,13 @@ function menu_defaults()
              "Save")
                 default_save YES     # save, but keep temporary configuration
                 ;;
+             "Sel")                  # select new target scheme
+                $PWL_ENVSEL --desc .newtarget
+                chmod 777 .newtarget
+                . ./.newtarget
+                $RM  .newtarget    # use for internal variable
+                default_change target_scheme $target_scheme " "
+                ;;
              "Skip"|"skip")
                 xx=1
                 ;;
@@ -488,10 +518,22 @@ function menu_defaults()
            esac
       esac
    done
-   $RM  .default.lst .result pwl_defaults.README
+   $RM  .defaults.lst .result pwl_defaults.README
    $decho "done menu_defaults"
 }
-
+#
+# pwl_default_init - initialize project
+#
+function pwl_default_init()
+{
+   #
+   # use last project or pick one - if none exists, then leave
+   #
+   if [ -z "$CFG_BASE" ] ; then
+      pwl_init_project
+   fi
+   target_scheme_desc=`eval $PWL_ENVSEL --desc`
+}
 #=============================================================================
 #
 # main - parse command line
@@ -502,12 +544,7 @@ function default_main()
    if [ "$backtitle" = "" ] ; then
       backtitle=$projInfo
    fi
-   #
-   # use last project or pick one - if none exists, then leave
-   #
-   if [ -z "$CFG_BASE" ] ; then
-      pwl_init_project
-   fi
+   pwl_default_init
    #
    # otherwise, parse command line and execute commands or do interactive
    #
@@ -536,8 +573,8 @@ function default_main()
             gotOne=1
             ;;
 
-         "--reset")                  #--reset [TYPE]
-            default_reset $2
+         "--reset")                  #--reset
+            default_reset 
             if [ "$?" != "0" ] ; then
                $decho "end default_reset not done 1"
                exit 1
