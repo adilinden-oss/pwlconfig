@@ -57,13 +57,18 @@ function pwl_target_init()
    #
    func_rd_pwlconfig
    #
-   # set vaiables that depend on saved configuration
+   # set variables that depend on saved configuration
    #
    func_rd_define
    #
    # set logging to mono
    #
    rd_action_verbosity=mono
+   #
+   # cleanup log file for next run
+   #
+   date >$rd_log
+   echo "Loading target device...." >>$rd_log
    #
    $decho "done pwl_target_init"
 }

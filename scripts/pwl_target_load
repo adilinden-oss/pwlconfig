@@ -1080,6 +1080,12 @@ func_rd_build_ro_root_rd () {
 
     # calculate the required root fs space
     rd_size_fs=`du -s -k $rd_projectroot | cut -f 1`
+
+    # deduct the /dev and /etc filesystems
+    # reverse addition of free space to ramdisks!
+    rd_size_fs=$((rd_size_fs - (rd_size_fs_dev - rd_dev_free)))
+    rd_size_fs=$((rd_size_fs - (rd_size_fs_etc - rd_etc_free)))
+
     # add the ramdisk sizes
     rd_size_fs=$((rd_size_fs + `du -s -k $rd_tmp/ramdisk.dev | cut -f 1`))
     rd_size_fs=$((rd_size_fs + `du -s -k $rd_tmp/ramdisk.etc | cut -f 1`))
@@ -1497,7 +1503,7 @@ func_rd_build_fd_fat () {
 
     # install syslinux bootloader
     func_rd_action m "Installing syslinux bootloader...."
-    syslinux $rd_target
+    syslinux -s $rd_target
     func_rd_action test
 
     # mount target

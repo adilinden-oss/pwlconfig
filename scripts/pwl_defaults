@@ -265,10 +265,10 @@ function default_change()
      return
    fi
    chgParm=$1
-   if ! grep -qs "$chgParm" $DFT_FILE_TMP ; then
+   if ! grep -qs "$chgParm=" $DFT_FILE_TMP ; then
       return   # invalid parameter name specified
    fi
-   lineIn="`grep "$chgParm" $DFT_FILE_TMP`"
+   lineIn="`grep "$chgParm=" $DFT_FILE_TMP`"
    $decho Got Line $lineIn
    #
    # parse the line
@@ -319,7 +319,7 @@ function default_change()
       newValue=$2
    fi
    # lets use sed to replace the value and keep the order of the file
-   sed "/${chgParm}/s"'\.*\'"${3}export $parmName=\"$newValue\"   # Prompt: $promptValue"'\' $DFT_FILE_TMP > .dft.tmp
+   sed "/${chgParm}=/s"'\.*\'"${3}export $parmName=\"$newValue\"   # Prompt: $promptValue"'\' $DFT_FILE_TMP > .dft.tmp
    #
    cp .dft.tmp $DFT_FILE_TMP
    #
