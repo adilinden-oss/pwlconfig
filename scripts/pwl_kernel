@@ -22,9 +22,77 @@
 ######
 #pwl_kernel.README
 #
+#  Provides operations to build or customize your PeeWee Kernel.
+#
+#  The source file contains the kernel source for a specific version of
+#  the kernel, with patches applied.  Additional drivers may have been
+#  included with this kernel source also.
+#
+#  o Select Kernel Source
+#    To begin with, select the kernel source that you want to use as the
+#    basis for your kernel - version 2.2.14, 2.2.17 or whatever is available.
+#    If you have previously built your own kernel, the last version is
+#    displayed.
+#
+#  o Extract Kernel Source
+#    Use this to extract all the source code for the kernel you choose. If
+#    you have previously extracted a kernel, it will be overwritten. Once
+#    extracted, you do not have to re-extract it unless you want to start
+#    from a "clean" install.
+#
+#  o Select a Configuration
+#    If you have already selected and extracted a kernel, you can start here.
+#    This lets you choose the config file that closely matches your needs.
+#    The configuration file selected is copied into your PeeWee project
+#    so you can continue modifying your configuration later.  If you 
+#    have already started a configuration, your configuration file will
+#    be used for any further configuring or building operations.
+#
+#  o Configure your Kernel
+#    If you have already selected and extracted a kernel and have choosen
+#    a configuration file, you can start here to modify your kernel
+#    configuration.  
+#    This option runs the ubiquitous Menuconfig script - which should look
+#    familiar to all pwlconfig users:). The Menuconfig script is actually
+#    built using the extracted kernel.
+#
+#    Note: Use the Exit / Save Configuration from within Menuconfig to
+#          update the default ".config" file.  This file is then copied
+#          into your PeeWee project.
+#
+#  o -- Choose optional modules to be build
+#    This list is built from the optional modules included with the
+#    kernel selected.  Choose each module desired to have it built
+#    when kernel is built.
+#
+#  o Compile the Kernel
+#
+#  o Package the Kernel
+#
 #
 #END
 ######
+# Notes: The module provides access to the normal menuconfig and maintains
+#        a kernel configuration for the project.  
+#
+# To Do: "I've got a driver/tool program that must be compiled with the
+#         kernel" ...
+#         Need a way to load files into the projects custom.kernel (?) 
+#         directory, then after the kernel is extracted, this item 
+#         (should be listed as a kernel module?) is extracted and built...
+#
+#         i.e. I have natsemi FlashRom program but I need a module
+#         compiled that works with the program.  The module needs to be
+#         compiled with the kernel to get the symbols to match, etc...
+#        
+#         - Install into custom.kernel
+#         - Include a Build_module script file
+#         - Show module description on pwl_kernel menu
+#         - build kernel builds this module
+#
+#  To Do: Package the new custom built kernel - get all the module files
+#         and any configuration files and tar'em up into one big package
+#         tar file, store in packages/custom or something like that.
 #
 #=============================================================================
 #
@@ -38,15 +106,28 @@ else
   echo "script pwl_functions not found"
 fi
 #
-PWL_PWL_KERNEL_VER=${PWL_REL_VER}".1"
+PWL_PWL_KERNEL_VER="${PWL_REL_VER}"
 #
 # the source base of the kernel relative to the extract dir
 #
 srcBase="/usr/src/linux"
 #
-# parse kernel script
+# file names - prefixes and suffixes 
 #
-. ./${RPW_DIR}${srcBase}/pwl_kernel_functions
+KERN_SRC_PREFIX=kernel-source
+KERN_PREV_SUFFIX=.i386.rpm.prev 
+KERN_SRC_SUFFIX=.i386.rpm
+K_CFG_SUFFIX=.config
+K_CFG=kernel.config
+#
+# Directories used for kernel operations
+#
+# $KBW_DIR  Kernel build work directory defined in pwl_functions
+#
+K_BASE_DIR=${KBW_DIR}/usr/src                    
+K_LINUX_DIR=${KBW_DIR}/usr/src/linux        # inside the kernel source
+K_CFG_DIR=${KBW_DIR}/usr/src/linux/configs  # location for configs
+K_BUILD_ROOT=${KBW_DIR}/kernel-buildroot
 #
 #=============================================================================
 #
@@ -78,78 +159,181 @@ function build_pwl_kernel ()
    # insert command operations in menu
    #
    echo -n "" > $1
-   echo -n " 'Sel'    'Select and extract kernel sources -->'  "        >> $1
-   echo -n " 'Con'    'Configure the kernel (make menuconfig) -->' "    >> $1
-   echo -n " 'skip'   '---   Select Optional Drivers   ---' "               >> $1
+   # show previous kernel source selected for this project
    #
-   # create checkboxed list of available options
+   if [ "$KERN_SRC" = "" ] ; then
+      echo -n " 'Sel'    'Select kernel source -->'  "              >> $1
+   else
+      echo -n " 'Sel'  'Select kernel source ($KERN_PREV) -->'" >> $1
+      echo -n " 'skip' '-------' " >> $1
+      #
+      kern_src_base=`basename $KERN_SRC $KERN_SRC_SUFFIX`
+      echo -n " 'Ext'    'Extract all kernel sources from: $kern_src_base' "         >> $1
+      if [ -d $K_LINUX_DIR ] ; then
+         echo -n " 'def'    'Select a configuration  -->' "    >> $1
+         if [ "$KERN_CFG" != "" ] ; then
+            echo -n " 'Con'    'Configure the kernel (Menuconfig) -->' "    >> $1
+            # don't show until a configuration is selected - its too confusing
+            if [ "$ConfOptKernel" != "" ] ; then
+               echo -n " 'skip'  ' -- Choose optional modules to build' " >> $1
+               for opt in $ConfOptKernel ; do
+                  # use opt suffix as suffix for description name
+                  descName=Desc${opt##Conf}
+                  # create a pointer to the description string
+                  descVar=`echo "$"$descName`
+                  # evaluate the pointer to get the description string
+                  descStr=`eval echo $descVar`
+                  # flag if the option is set
+                  if [ "$(( $opt ))" = "1" ] ; then
+                     echo -n " '$opt' '[*] $descStr' " >> $1
+                  else
+                     echo -n " '$opt' '[ ] $descStr' " >> $1
+                  fi
+               done  # end flagging options
+            fi # end options
+         echo -n " 'skip' '-------' " >> $1
+         echo -n " 'Com'    'Compile the Kernel' "                      >> $1
+         echo -n " 'Tar'    'Create Custom Kernel Package (not rpm!) ' " >> $1
+         fi # end configuration
+      fi # end linux dir exists
+   fi # end previous kernel selected
    #
-   if [ -n "$ConfOptKernel" ]; then
-       #
-       # we have optional features for the kernel
-       #
-       for ConfOpt in $ConfOptKernel; do
-           #
-           # get the variable value
-           #
-           ConfOptVal=`eval echo $"${ConfOpt}"`
-           #
-           # get the description
-           #
-           ConfOptDesc=`eval echo $"Desc$ConfOpt"`
-	   #
-	   # get any nested options
-           #
-	   ConfOptNest=`eval echo $"Conf$ConfOpt"`
-           if [ -z "$ConfOptVal" ]; then
-               #
-               # undefined, not selected
-               #
-               echo -n " '$ConfOpt' '[ ] $ConfOptDesc' "      >>$1
-           else
-               #
-               # define, selected
-               #
-               echo -n " '$ConfOpt' '[*] $ConfOptDesc' "      >>$1
-               #
-               # build second level list
-               #
-               if [ -n "$ConfOptNest" ]; then
-	           #
-		   # we have a nested list
-		   #
-		   for NestConfOpt in $ConfOptNest; do
-		       #
-		       # get variable values
-		       #
-		       NestConfOptVal=`eval echo $"$NestConfOpt"`
-		       NestConfOptDesc=`eval echo $"Desc$NestConfOpt"`
-		       #
-		       if [ -z "$NestConfOptVal" ]; then
-		           #
-			   # undefined
-			   #
-			   echo -n " '$NestConfOpt' '    [ ] $NestConfOptDesc' " >>$1
-		       else
-		           #
-			   # defined
-			   #
-                	   echo -n " '$NestConfOpt' '    [*] $NestConfOptDesc' " >>$1
-		       fi
-		   done
-	       fi	   
-           fi
-       done
-   fi	   
-   #
-   echo -n " 'Skip'   '--- End Select Optional Drivers ---' "      >> $1
-   echo -n " 'Com'    'Compile the Kernel and Optional Drivers ' " >> $1
-   echo -n " 'Tar'    'Create Package (not rpm!) ' "               >> $1
    $decho "end build_pwl_kernel"
 }
 
 #
+# show_source_pwl_kernel - list available kernel sources
+#
+function show_sources () {
+ 
+    $decho "start show sources"
+    #
+    # create LXDIALOG thingy
+    #
+    echo -n $DIALOG \
+        --title     "'Select Kernel Source'"                                \
+        --backtitle "'$backtitle'"                                               \
+	--menu                                                                   \
+	"'Select Kernel Source Base to Extract              Project: $CFG_BASE'" \
+	$ROWS $COLS  $((ROWS-8))                                                  \
+	"'Add'"      > .dialog
+    cat $1 >> .dialog
+   . ./.dialog
+}
+
+#
+# show a list of all available configuration files
+#
+function show_configs () {
+ 
+    $decho "start show sources"
+    #
+    # create LXDIALOG thingy
+    #
+    echo -n $DIALOG \
+        --title     "'Choose a Kernel Configuration'"                       \
+        --backtitle "'$backtitle'"                                               \
+	--menu                                                                   \
+	"'Select Kernel Configuration File                  Project: $CFG_BASE'" \
+	$ROWS $COLS $((ROWS-8))                                                  \
+	"'Add'"      > .dialog
+    cat $1 >> .dialog
+   . ./.dialog
+}
+
+function build_configs()
+{
+    $decho "start build_config"
+    #
+    if [ -f $PWL_PRJ/$K_CFG ] ; then
+       echo -n " 'EXIST' 'Use existing project kernel configuration' " > $1
+    else
+       echo -n "" > $1
+    fi
+    #
+    if [ `ls $K_CFG_DIR/*${K_CFG_SUFFIX} | wc -l` = "0" ]; then
+        echo -n " 'skip'   'kernel-source error: No configurations found' " > $1
+    else   
+       for kcFile in  $K_CFG_DIR/*${K_CFG_SUFFIX} ; do
+          kcBase=`basename $kcFile $K_CFG_SUFFIX`
+          echo -n " '$kcFile' '$kcBase' " >> $1
+       done
+    fi
+    #
+    $decho "end build_config"
+}
+
+#
+# Builds a dialog box listing of available kernel-source_xxx.i386.rpm files
+#
+function build_sources() {
+
+    $decho "start build_source"
+    #
+    $decho "checking for kernel srpms in $PKG_SRPMS_DIR"
+    #
+    # list kernel source rpms - all kernel-source.n.n.n-nn.i385.rpm files
+    #
+    if [ `ls $PKG_RPMS_DIR/${KERN_SRC_PREFIX}*rpm | wc -l` = "0" ]; then
+        echo -n " 'skip' 'No Sources found - Download PeeWee kernel-source Files' " > $1
+    else   
+        echo -n "" > $1 
+        for keFn in $PKG_RPMS_DIR/${KERN_SRC_PREFIX}*rpm ; do
+            keBn=`basename $keFn $KERN_SRC_SUFFIX`
+            echo -n " '$keFn'   '$keBn' " >> $1
+        done	
+    fi	
+    #
+    $decho "end build_sources"
+}
+
+function kernel_options()
+{   
+   $decho "start load kernel_options"
+   #
+   # include the list of options and the option building functions
+   # 
+   if [ -f "$K_LINUX_DIR/pwl_kernel_functions" ] ; then
+      . $K_LINUX_DIR/pwl_kernel_functions
+      return_val=0
+   else
+      $decho "load kernel_options failed!"
+      return_val=1
+   fi
+   #
+   $decho "end load kernel_options"
+   return $return_val
+}
+
+
+#
+# save the "toggled" options in the menu - return with the global SelOpt
+# set.
+#
+function kernel_save_options()
+{
+   SelOpt=""
+   if [ "$ConfOptKernel" != "" ] ; then
+      for opt in $ConfOptKernel ; do
+         if [ "$(( $opt ))" = "1" ] ; then
+            SelOpt="$SelOpt $opt"
+         fi
+      done
+   fi
+   KERN_PREV=`basename $KERN_SRC $KERN_SRC_SUFFIX`
+   #
+   # create a project file to indicate which kernel source was
+   # used to build the kernel and store the modules selected.
+   #
+   echo "$SelOpt" >  $PWL_PRJ/${KERN_PREV}${KERN_PREV_SUFFIX}
+
+}
+
+#
 # pwl_kernel_init - Initialize project environment
+#  - loads the kernel functions if they exist
+#  - defines global KERN_SRC and KERN_PREV for our menus
+#
 function pwl_kernel_init()
 {
    $decho "start pwl_kernel_init $*"
@@ -159,6 +343,40 @@ function pwl_kernel_init()
    pwl_init_project
    default_define          # set global variables for project defaults
    #
+   # load any kernel option functions if previously extracted
+   #
+   kernel_options
+   #
+   # KERN_SRC  - name of currently extracted kernel source file
+   #
+   if [ "$Build_Kver" != "" ] ; then 
+      # create the kernel source filename (should be defined in pwl_func.. 
+      KERN_SRC=${PKG_RPMS_DIR}/${KERN_SRC_PREFIX}-${Build_Kver}-${Build_Kpatch}${KERN_SRC_SUFFIX}
+      $decho "Previous source extracted from: $KERN_SRC"
+   fi
+   #
+   # KERN_PREV - name of last used kernel source file
+   # --opt--   - flags enabled for each module previously built
+   #
+   if [ `ls $PWL_PRJ/${KERN_SRC_PREFIX}* 2> /dev/null | wc -l` != "0" ]; then
+      #
+      prevKernSrc=`ls $PWL_PRJ/${KERN_SRC_PREFIX}*`
+      KERN_PREV=`basename $prevKernSrc $KERN_PREV_SUFFIX`
+      $decho "using previous source: $KERN_PREV"
+      #
+      # read previous file to enable modules previously built
+      read prevOpt < $prevKernSrc
+      for opt in $prevOpt ; do 
+         eval $opt="1"
+      done
+      $decho "previous modules enabled: $prevOpt"
+      #
+   fi
+   # KERN_CFG - recall our configuration if it exists
+   if [ -f "${PWL_PRJ}/${K_CFG}" ] ; then      
+      $decho "previous configuration found"
+      KERN_CFG=${PWL_PRJ}/${K_CFG}
+   fi
    #
    $decho "done pwl_kernel_init"
 }
@@ -167,58 +385,23 @@ function pwl_kernel_init()
 #
 #  pwl_kernel_xxx functions go here !!
 #
-
 #
-# show_source_pwl_kernel - list available kernel sources
-#
-function show_source_pwl_kernel () {
-    $decho "start show sources"
-    #
-    # create LXDIALOG thingy
-    #
-    echo -n $DIALOG \
-        --title     "'Create Custom Kernel Menu'"                                \
-        --backtitle "'$backtitle'"                                               \
-	--menu                                                                   \
-	"'Select Kernel to Extract                          Project: $CFG_BASE'" \
-	$ROWS $COLS $((ROWS-8))                                                  \
-	"'Add'"      > .dialog
-    #
-    # list kernel source rpms
-    #
-    if [ `ls $PKG_RPMS_DIR/kernel-source*rpm | wc -l` = "0" ]; then
-        echo -n " 'skip'   'none found' " >> .dialog
-    else    
-        for keFn in $PKG_RPMS_DIR/kernel-source*rpm ; do
-            keBn=`basename $keFn`
-            echo -n " '$keFn'   '$keBn' " >> .dialog
-        done	
-    fi	
-    #
-    # send to screen
-    #
-    . ./.dialog
-    $decho "end show sources"
-}
-
-#
-# action_source_pwl_kernel - take action based on what's presented
+#  kernel_extract_source (srcFile) - 
+#        extracts the kernel and associated driver files
+#        from the given srcFile
 # 
-function action_source_pwl_kernel () {
-    $decho "start processing sources"
+function kernel_extract_source () 
+{
+    $decho "start kernel_extract_source"
     #
-    # process input
-    #
-    retVal=$?
-    read selection < .result
-    case "$retVal" in
-      1|2|255)                    # exit
-        ;;  
-      0|3|4|5|6)                  # do things
+    srcFile=$1
+    if [ "$debugMode" = "0" -o ! -d "$K_LINUX_DIR" ] ; then   
+               # DEBUG - in debug mode, only extract when you manually
+               #         delete the rpm directory (saves lots of time:)
         #
         # process the selected source rpm
 	#
-	$decho "extracting $selection"
+	$decho "extracting $srcFile"
 	#
 	rpmOptions="--force  --noscripts --nodeps --notriggers \
            --dbpath /.rpm_db  --ignorearch --ignoreos"
@@ -229,34 +412,365 @@ function action_source_pwl_kernel () {
 	#
 	# cleanup the working directory
 	#
-        if [ -d $RPW_DIR ] ; then
-	    rm -rf $RPW_DIR
+        if [ -d $KBW_DIR ] ; then
+	    $decho "removing $KBW_DIR directory"
+	    rm -rf $KBW_DIR
 	fi
 	#
-        mkdir -p $RPW_DIR/.rpm_db
+        mkdir -p $KBW_DIR/.rpm_db
 	#
 	# change work dir
 	#
-	cd $RPW_DIR
+	cd $KBW_DIR
 	rootDir=$PWD
 	#
 	# install the rpm file
+	$decho "Extracting to:  $rootDir"
+        #
+	$decho "CMD:$RPM -i --root $rootDir  $rpmOptions $srcFile"
+	$RPM -i --root $rootDir  $rpmOptions $srcFile
 	#
-	$RPM -i --root $rootDir $rpmOptions $selection
+	# create a generic link to the actual sources
+	#
+        K_VER=`$RPM -q --queryformat %{version} -p $srcFile`
+	K_REL=`$RPM -q --queryformat %{release} -p $srcFile`
+	#
+	# create the symlink
+	#
+        ln -sf "${K_LINUX_DIR}-${K_VER}-${K_REL}" "$K_LINUX_DIR"
 	#
 	# return from where we came from
 	#
 	cd $loc
-    esac	
-    $decho "end processing sources"
-}    
+      fi
+   #
+   # store the options for this kernel version
+   #
+   kernel_save_options
+   #
+   $decho "end processing sources"
+}
+    
+#
+# kernel_build - sets up the project environment to build a kernel
+#
+function kernel_build()
+{
+   $decho "start kernel_build"
+   #
+   kernel_save_options 
+   #
+   # get the functions from the extracted kernel 
+   #
+   kernel_options
+   #
+   # define some needed variables
+   #
+   Build_Dir="$K_BASE_DIR"                  # the base dir 
+   Build_Root="$K_BUILD_ROOT"               # install root for kernel
+   Build_Config="$PWD/$PWL_PRJ/$K_CFG"      # current configuration (absolute)
+   $decho "Building kernel with following parameters:"
+   $decho "Build_Dir=$Build_Dir"
+   $decho "Build_Root=$Build_Root"
+   $decho "Build_Config=$Build_Config" 
+   #
+   # we need to be in the kernel source tree before building anything
+   #
+   loc=$PWD
+   cd "$K_LINUX_DIR"
+   #
+   # now call the kernel builder to build the kernel and all
+   # selected options, log output for later display
+   #
+   echo "building kernel with options: $SelOpt"    # > $loc/.compile.log 
+   echo "installing build parts in: $Build_Root"   # >> $loc/.compile.log
+   Build_Kernel_All "$SelOpt"                      # >> $loc/.compile.log 2&>1
+   #
+   # save return status  
+   #
+   return_val=$?
+   #
+   # restore path
+   #
+   cd $loc
+   #
+   # display results
+   #
+   if [ "$return_val" != "0" ]; then
+       # dump error messages to a file
+       echo -ne $BuildErrMsg > .results
+       # calculate columns
+       BuildErrCol=`cat .results | wc -l | tr -d [:blank:]`
+       BuildErrCol=$((BuildErrCol + 5))
+       if ! [ "$BuildErrCol" -lt "$ROWS" -a "$BuildErrCol" -gt "7" ]; then
+           BuildErrCol=7
+       fi	   
+       # display caught errors
+       # using own function as pwl_functions isn't flexible enough
+       $DIALOG --title "Kernel Build Failed!" \
+           --backtitle "$backtitle"  \
+           --textbox .results "$BuildErrCol" "$((COLS - 20))"
+   else
+       # success
+       show_message "Success!" \
+           "The kernel build was successful. A custom kernel package should be created next."
+   fi	   
+   #
+   $RM .results
+   $RM $loc/.compile.log
+   $decho "end kernel_build"
+}
 
+#
+# kernel_create - create a kernel tar package
+#
+function kernel_create()
+{
+    #
+    $decho "start kernel_create"
+    #
+    # build the default installation path
+    #
+    K_INSTALL_DIR="$PKG_DIR/Kernel_Custom"
+    K_INSTALL_NAME="kernel-${CFG_BASE}-${Build_Kver}.tar"
+    K_INSTALL_ERR=""
+    #
+    # make sure we have a compiled kernel
+    #
+    if [ ! -d "$K_BUILD_ROOT" ]; then
+        show_message "Create Custom Kernel" \
+	    "No compiled kernel found. Perhaps the kernel hasn't been compiled yet?"
+	return
+    fi	
+    #
+    # prompt for kernel package path
+    #
+    kernel_create_define "Enter installation path for kernel package:" \
+        "$K_INSTALL_DIR"
+    #
+    if [ "$?" != "0" -o "$newValue" = "" ]; then
+        return
+    fi	
+    # define new directory
+    K_INSTALL_DIR="$newValue"
+    #
+    # prompt for kernel package name
+    #
+    kernel_create_define "Enter name for kernel package:" \
+        "$K_INSTALL_NAME"
+    #
+    if [ "$?" != "0" -o "$newValue" = "" ]; then
+        return
+    fi  
+    # define new name
+    K_INSTALL_NAME="$newValue"
+    #
+    if echo "$K_INSTALL_NAME" | grep -v -q "tar$"; then
+        #
+	# package name does not end with tar
+        # ask for confirmation before building system
+        #
+        show_confirm "Create Custom Kernel" \
+            "The kernel name defined does not meet pwlconfig criteria. Continue anyways?"
+        if [ $? != "0" ]; then
+            $decho "kernel_create: Nothing was done. User cancelled..."
+            return
+        fi
+    fi	
+    #
+    if [ -f "$K_INSTALL_DIR/$K_INSTALL_NAME" ]; then
+        #
+	# target already exists
+        #
+        show_confirm "Create Custom Kernel" \
+            "The package specified already exists. Overwrite the target?"
+        if [ $? != "0" ]; then
+            $decho "kernel_create: Nothing was done. User cancelled..."
+            return
+        fi
+	# since we overwrite remove any old .list directories in target dir
+	rm -f $K_INSTALL_DIR/*.list
+    fi	
+    #
+    # we made it so far
+    # create the directory, then create package
+    #
+    if mkdir -p "$K_INSTALL_DIR"; then
+        # create the tar package
+	$decho "kernel_create: taring up the custom kernel"
+	#
+	kernel_create_tar
+    else	
+        K_INSTALL_ERR="Cannot create install directory! "
+    fi
+    if [ "$K_INSTALL_ERR" = "" ]; then
+        K_INSTALL_ERR="Successfully created new custom kernel package. Select the custom kernel in the package selection to include it in your project."
+    fi
+    show_message "Create Custom Kernel" "$K_INSTALL_ERR"
+    #
+    $decho "end kernel_create"
+}
+
+#
+# kernel_create_tar
+#
+function kernel_create_tar ()
+{
+    #
+    $decho "start kernel_create_tar"
+    #
+    loc="$PWD"
+    # change working dir
+    cd $K_BUILD_ROOT
+    # create tar file
+    tar -cvpf ."$K_INSTALL_NAME" *
+    #
+    cd $loc
+    # copy temporay tar file to final location
+    cp -f "$K_BUILD_ROOT/.$K_INSTALL_NAME" "$K_INSTALL_DIR/$K_INSTALL_NAME"
+    #
+    $decho "end kernel_create_tar"
+}    
+    
+#
+# kernel_create_define (prompt) (default value)
+#
+function kernel_create_define ()
+{
+    $decho "start kernel_create_define"
+    #
+    if [ "$1" = "" -o "$2" = "" ]; then return 1; fi
+    #
+    retVal=1
+    while [ "$retVal" = "1" ]; do
+        get_string "Create Custom Kernel" \
+            "$1" \
+            newValue "$2"
+	# process input
+	retVal="$?"
+	case "$retVal" in
+	  1)         # help
+	    $decho "kernel_create: help pressed"
+	    ;;
+	  2|255)     # esc pressed
+	    $decho "kernel_create: esc pressed"
+	    retVal=2
+	    ;;
+	  0)         # ok pressed
+	    $decho "kernel_create: ok pressed"
+        esac
+    done	
+    #
+    $decho "end kernel_create_define"
+    #
+    return "$retVal"
+}
 
 #
 #=============================================================================
 #
+# menu_kernel_config - operates the menu for selecting a configuration file
 #
-# menu_pwl_kernel - operate on ***
+function menu_kernel_config()
+{
+   $decho "start menu_kernel_config"
+   pwl_configDone=0
+   #
+   while [ "$pwl_configDone" = "0" ]; do
+      #
+      # Build list of sources
+      #
+      build_configs .config.lst
+
+      show_configs .config.lst 2>.result
+
+      retVal=$?
+      read selection <.result
+      pwl_configDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            pwl_configDone=1
+           ;;
+         2)                          # help
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_kernel.README
+            show_help pwl_kernel.README xx
+           ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           case "$selection" in
+             "EXIST")                # uses existing configuration file
+                 KERN_CFG=${PWL_PRJ}/${K_CFG}
+                 pwl_configDone=1
+              ;;
+             "skip")
+                 pwl_configDone=1
+              ;;
+             *)                      # use selected configuration file
+                 # prompt to overwrite ??
+                 cp -f $selection ${PWL_PRJ}/${K_CFG}
+                 #
+                 KERN_CFG=${PWL_PRJ}/${K_CFG}
+                 pwl_configDone=1
+           esac
+           ;;
+       esac
+    done
+   #
+   # return clean
+   #
+   $RM .config.lst .result .dialog  .show_result pwl_kernel.README
+   $decho "end menu_kernel_config"
+   return 0
+}
+
+#
+# menu_pwl_kernel_source - lets user select a kernel source rpm file
+#     -- Sets the Global KERN_SRC variable 
+#
+function menu_pwl_kernel_source()
+{
+   $decho "start menu_select_kernel_source"
+   pwl_sourceDone=0
+   #
+   while [ "$pwl_sourceDone" = "0" ]; do
+      #
+      # Build list of sources
+      #
+      build_sources .kernsrc.lst
+
+      show_sources .kernsrc.lst 2>.result
+
+      retVal=$?
+      read selection <.result
+      pwl_sourceDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            pwl_sourceDone=1
+           ;;
+         2)                          # help
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_kernel.README
+            show_help pwl_kernel.README xx
+           ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           #
+           KERN_SRC=$selection
+           pwl_sourceDone=1 
+           ;;
+       esac
+       #   
+   done    # end while configuring
+
+   #
+   # return clean
+   #
+   $RM .kernsrc.lst .result .dialog  .show_result pwl_kernel.README
+   $decho "end menu_select_kernel_source"
+   return 0
+}
+
+#
+# menu_pwl_kernel - operate on kernel processing
 #
 function menu_pwl_kernel()
 {
@@ -280,56 +794,68 @@ function menu_pwl_kernel()
             pwl_kernelDone=1
            ;;
          2)                          # help
-            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_kernel.README
-            show_help pwl_kernel.README
+            sed -n /^######/,/^######/p  $0 | sed 's/^#*//g' >  pwl_kernel.README
+            show_help pwl_kernel.README xx
            ;;
          0|3|4|5|6)                  # toggle project or operate on current
            #
            case "$selection" in
              "Sel")  
-                xx=1
+                menu_pwl_kernel_source
+                ;;
+	     "Tar")
+	        #
+		# create a kernel tar package - overwrite any previous
+		#    tar package
 		#
-		# select the kernel sources to extract
-		#
-		show_source_pwl_kernel 2>.result   # show sources
+		kernel_create
+	        ;;
+             "Ext")       
                 #
-		action_source_pwl_kernel           # process input
+                # extract the kernel source files - overwrite any previous
+                #    kernel and patches
+                #
+                kernel_extract_source $KERN_SRC
+                kernel_options # redefine our options available
+                ;;
+             "def")
+                # choose a configuration file
+                #
+                menu_kernel_config
+                ;;
+             "Com")                              # compile everything
+                #
+                kernel_build
                 ;;
 	     "Con")
 	        #
 		# run make menuconfig
-		#
-		loc=$PWD
-		#
-		cd ${RPW_DIR}${srcBase}
-		#
-		make menuconfig
-		#
-		cd $loc
-		#
+		# - copy the current configuration file to location
+                #   required by Menuconfig
+                # - use the make program to get everything built properly
+                #
+                cp $PWL_PRJ/$K_CFG $K_LINUX_DIR/.config
+                #
+                loc=$PWD
+                cd $K_LINUX_DIR
+                make menuconfig 
+                cd $loc
+                cp $K_LINUX_DIR/.config $PWL_PRJ/$K_CFG
+                echo "Configuration done..."
+		sleep 1
+                #echo "Configuration done...press Enter to continue"
+                #read x
 		;;
-             "Total"|"Skip"|"skip")
+             "skip")
                 xx=1 # do nothing
                 ;;
-             *)                      # list item selected
-                xx=1
+             *)                      # list item selected - toggle it
 		#
-		# the selection variable contains the 
-		# variable name to toggle
-		#
-		# what is it now?
-		ConfOptVal=`eval echo $"${selection}"`
-		#
-		if [ -z "$ConfOptVal" ]; then
-		    # define it
-		    echo "$selection=y" > .toggle
-		else
-		    echo "$selection=" > .toggle
-		fi
-		#
-		# parse .toggle to get out new value
-		. ./.toggle
-		$RM .toggle
+                if [ "$(( $selection ))" = "1" ] ; then
+                   eval $selection=
+                else
+                   eval $selection="1"
+                fi
 		#
                 ;;
            esac       # end select item

@@ -371,7 +371,7 @@ function device_load_fs ()
    #
    # execute commands to load the file system to the device
    #
-   . ./$PWL_TARGET >.load.log 
+   . ./$PWL_TARGET # >.load.log 
    #
    # show dialog with success or fail
    #
@@ -396,7 +396,7 @@ function device_load_fs ()
        $decho "Skip results..." 
    else
        #
-       show_results .load.log "Load $deviceName Results"
+       show_results $rd_log "Load $deviceName Results"
        $decho "Show results..." 
    fi
    #
@@ -541,7 +541,6 @@ function main_init()
        #
        if [ $? = "1" ] || [ $? = "255" ]; then
            $decho "Nothing was done. User cancelled..."
-           return
        else
            $decho "Calling $PWL_PKGMGR to extract rpms..."
 	   $PWL_PKGMGR --add-all

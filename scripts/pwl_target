@@ -63,7 +63,7 @@ function pwl_target_init()
    #
    # set logging to mono
    #
-   rd_action_verbosity=mono
+   rd_action_verbosity=colour
    #
    # cleanup log file for next run
    #

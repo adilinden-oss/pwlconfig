@@ -65,7 +65,6 @@ PWL_TARGETF="$basedir/pwl_target_functions"
 PWL_TARGETL="$basedir/pwl_target_load"
 PWL_ENVSEL="$basedir/pwl_envsel"
 PWL_CREATE="$basedir/pwl_create"
-PWL_KERNEL="$basedir/pwl_kernel"
 RM="rm -f"
 TAR=tar
 #

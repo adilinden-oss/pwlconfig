@@ -129,7 +129,7 @@ PWL_CUSTOM_VER=${PWL_REL_VER}".2"
 # record path for custom directory
 #
 pushd "$PWD/$PWL_PRJ/$CUSTOM_DIR" 2> /dev/null > /dev/null
-PATH_CUSTOM=$PWD
+PATH_CUSTOM="$PWD"
 popd 2>/dev/null > /dev/null
 #
 #=============================================================================
@@ -178,7 +178,7 @@ function build_custom ()
    #  show all files listed, flag'em if they are on the list
    #
    local totalSz=0
-   for customFn in $(cat .result); do
+   while read customFn; do
       #
       echo -n "."   # show user we are doing something
       if [ ! -z "$customFn" ] ; then
@@ -193,7 +193,7 @@ function build_custom ()
          #
          # flag 'em if we got 'em - must be exact End Of Line match
          #
-         if grep -q $customFn$ "$PWL_PRJ/.$CUSTOM_LST" ; then
+         if grep -q "$customFn$" "$PWL_PRJ/.$CUSTOM_LST" ; then
             echo -n " '$customFn' '[*] $customFn " >> $1
             totalSz=`expr $totalSz + $fileSz`
          else
@@ -202,13 +202,13 @@ function build_custom ()
          #
          # show size if not zero
          #
-         if [ $fileSz -gt 0 ] ; then
+         if [ "$fileSz" -gt 0 ] ; then
             echo -n "  $fileSz" >> $1
          fi
          echo -n "' " >> $1
       fi
       #
-   done
+   done < .result
    #
    echo -n " 'Total' 'Estimated total bytes for selected files: $totalSz' " >> $1
 
@@ -221,11 +221,12 @@ function build_custom ()
 #
 function custom_source()
 {
+      $decho "start custom_source $1 $2"
       #
       # record Source file for updates later
       #
-      local srcDirFn=$1
-      local custDirFn=$2
+      local srcDirFn="$1"
+      local custDirFn="$2"
       local srcFn=""
       #
       if [ "$srcDirFn" = "" ] || [ "$custDirFn" = "" ] ; then
@@ -240,11 +241,11 @@ function custom_source()
          #
          # user directory specified, list all files
          #
-         dir_tree_list_all $srcDirFn .result
+         dir_tree_list_all "$srcDirFn" .result
          #
-         for srcFn in `cat .result` ; do
+         while read srcFn; do
             echo "$srcDirFn/$srcFn"="$custDirFn/$srcFn" >> "$PWL_PRJ"/"$CUSTOM_SRC"
-         done
+         done < .result
       #
       else
          #  only one file specified
@@ -257,6 +258,7 @@ function custom_source()
       #
       sort -u $PWL_PRJ/$CUSTOM_SRC | sed "s!//!/!g" > .result
       cp .result $PWL_PRJ/$CUSTOM_SRC
+      $decho "end custom_source"
 }
 
 #
@@ -294,28 +296,28 @@ function custom_add()
          # copy entire source directory to our custom directory
          #
          $decho "Adding custom directory $custDirFn"
-         cp -rfax $srcDirFn/* $PWL_PRJ/$CUSTOM_DIR/"$custDirFn"
+         cp -rfax "$srcDirFn"/* $PWL_PRJ/$CUSTOM_DIR/"$custDirFn"
       elif [ -L "$srcDirFn" ] ; then
          #
          $decho "Adding custom link file $custDirFn"
-         custDir=$PWL_PRJ/$CUSTOM_DIR/`dirname $custDirFn`
-         if [ ! -d  $custDir ] ; then
-            mkdir -p $custDir
+         custDir=$PWL_PRJ/$CUSTOM_DIR/`dirname "$custDirFn"`
+         if [ ! -d  "$custDir" ] ; then
+            mkdir -p "$custDir"
          fi
-         cp -ax $srcDirFn $PWL_PRJ/$CUSTOM_DIR/"$custDirFn"
+         cp -ax "$srcDirFn" $PWL_PRJ/$CUSTOM_DIR/"$custDirFn"
          # 
       else
          #
          # make sure destination directory exists
          #
-         if [ ! -d "$PWL_PRJ"/"$CUSTOM_DIR"/`dirname $custDirFn` ] ; then
-            mkdir -p "$PWL_PRJ"/"$CUSTOM_DIR"/`dirname $custDirFn`
+         if [ ! -d "$PWL_PRJ"/"$CUSTOM_DIR"/`dirname "$custDirFn"` ] ; then
+            mkdir -p "$PWL_PRJ"/"$CUSTOM_DIR"/`dirname "$custDirFn"`
          fi
          #
          # copy source file to our custom file
          #
          $decho "Adding custom file $custDirFn"
-         cp -fax $srcDirFn $PWL_PRJ/$CUSTOM_DIR/"$custDirFn"
+         cp -fax "$srcDirFn" $PWL_PRJ/$CUSTOM_DIR/"$custDirFn"
       fi
       #
       # make sure custom configuration files exist
@@ -329,13 +331,13 @@ function custom_add()
       #
       # add single file name, or list of files if we added a directory
       #
-      if [ -d $PWL_PRJ/$CUSTOM_DIR/$custDirFn ] ; then
-         dir_tree_list_all $PWL_PRJ/$CUSTOM_DIR/$custDirFn .result
-         for fn in `cat .result` ; do
-            echo ${custDirFn##/}/"$fn" >> $PWL_PRJ/.$CUSTOM_LST
-         done
+      if [ -d "$PWL_PRJ/$CUSTOM_DIR/$custDirFn" ] ; then
+         dir_tree_list_all "$PWL_PRJ/$CUSTOM_DIR/$custDirFn" .result
+         while read fn; do
+            echo "${custDirFn##/}"/"$fn" >> $PWL_PRJ/.$CUSTOM_LST
+         done < .result
       else
-         echo ${custDirFn##/} >> $PWL_PRJ/.$CUSTOM_LST
+         echo "${custDirFn##/}" >> $PWL_PRJ/.$CUSTOM_LST
       fi
       # sort for nice display, and to only list once
       #
@@ -426,29 +428,29 @@ function custom_toggle()
       #
       # Toggle custom file from the configuration
       #
-      local selection=$1
+      local selection="$1"
       if [ "$selection" = "" ] ; then
          usage "Invalid parameters: $*"
       fi
       #
       custTmp="$PWL_PRJ"/."$CUSTOM_LST"
-      selTmp=`basename $selection`
+      selTmp=`basename "$selection"`
       #
       # toggle selection - use exact match
       #
-      if grep -q "$selTmp$" $custTmp ; then
+      if grep -q "$selTmp$" "$custTmp" ; then
          #
          #  selection found - remove file (or directory) from the list file
          #
-         grep -v "$selTmp$" $custTmp > .result
-         cp .result $custTmp
+         grep -v "$selTmp$" "$custTmp" > .result
+         cp .result "$custTmp"
          $decho "Excluded custom file (or directory): $selTmp"
       #
       else
          #  selection not found - re-build the list, and add
          #      all that match (allows directory adds )
          #
-         dir_tree_list_all $PWL_PRJ/$CUSTOM_DIR .result
+         dir_tree_list_all "$PWL_PRJ/$CUSTOM_DIR" .result
          grep "$selTmp$" .result >> $custTmp
          $decho "Included custom file (or directory): $selTmp"
       fi
@@ -463,7 +465,7 @@ function copy_custom_to_src()
    $decho "start copy_custom_to_src"
    #
    fileLst="$1"
-   for newFn in `cat $fileLst` ; do 
+   while read newFn; do 
       custBase=`basename $newFn`
       srcDestFn=`grep $custBase  $PWL_PRJ/$CUSTOM_SRC`
       destFn=${srcDestFn##*=}
@@ -475,7 +477,7 @@ function copy_custom_to_src()
       $dmon
       #
       cp -fax  $PWL_PRJ/$CUSTOM_DIR/$destFn $srcFn
-   done
+   done < $fileLst
 }
 
 #
@@ -486,7 +488,7 @@ function copy_src_to_custom()
    $decho "start copy_src_to_custom"
    #
    fileLst="$1"
-   for newFn in `cat $fileLst` ; do 
+   while read newFn; do 
       srcBase=`basename $newFn`
       srcDestFn=`grep $srcBase  $PWL_PRJ/$CUSTOM_SRC`
       destFn=${srcDestFn##*=}
@@ -497,8 +499,8 @@ function copy_src_to_custom()
       $decho "copy: $srcFn to src: $destFn"
       $dmon
       #
-      cp -fax  $srcFn $PWL_PRJ/$CUSTOM_DIR/$destFn
-   done
+      cp -fax  "$srcFn" "$PWL_PRJ/$CUSTOM_DIR/$destFn"
+   done < $fileLst
    #
    $decho "finish copy_src_to_custom"
 }
@@ -522,19 +524,22 @@ function custom_update()
    echo -n "" > .update.oldcustom
    echo -n "" > .update.oldsrc
    #
-   for srcDestFn in `(cat "$PWL_PRJ"/"$CUSTOM_SRC" | grep -v "^#" )`; do
+   # Create file listing
+   #
+   cat "$PWL_PRJ"/"$CUSTOM_SRC" | grep -v "^#" > .update.tmp
+   while read srcDestFn; do
       $decho -n "."
       #
       # seperate source and destination names
       #
       destFn=${srcDestFn##*=}
       srcFn=${srcDestFn%%=*}
-      srcDir=`dirname $srcFn`
+      srcDir=`dirname "$srcFn"`
       # $decho checking $srcDir for file $srcFn 
       #
       # Check source files, prompt if not found
       #
-      if [ ! -d $srcDir ] ; then
+      if [ ! -d "$srcDir" ] ; then
          # 
          $decho "Custom Source directory not found"
          # 
@@ -579,7 +584,7 @@ function custom_update()
             echo "$srcFn" >> .update.oldsrc
       fi
       #
-   done
+   done < .update.tmp
    #
    # prompt to allow overwritting of old or non-existant files
    #
@@ -619,7 +624,7 @@ function custom_update()
       fi
    fi
    #
-   $RM .update.select
+   $RM .update.select .update.tmp
    $RM .update.nosrc .update.nocustom .update.oldcustom .update.oldsrc
    #
    $decho "end custom_update"
@@ -633,8 +638,8 @@ function custom_update()
 function custom_refresh()
 {
    $decho "start custom_refresh"
-   local mntName=$1
-   local chkFn=$2
+   local mntName="$1"
+   local chkFn="$2"
    #
    # verify parameters
    #
@@ -651,7 +656,7 @@ function custom_refresh()
    #
    destInfo="`find $PWL_PRJ/$CUSTOM_DIR/$chkFn -printf "%s   %t   %p     "`"
 
-   srcInfo="`find $mntName -printf "%s   %t   %p     "`"
+   srcInfo="`find "$mntName" -printf "%s   %t   %p     "`"
    #
    # compare dates of files to see if original is newer
    #
@@ -667,10 +672,10 @@ function custom_refresh()
       if [ "$?" = "0" ] ; then  # yes, replace it
          #
          # User confirmed, refresh the file
-         cp -fa $PWL_PRJ/$CUSTOM_DIR/$chkFn $mntName
+         cp -fa "$PWL_PRJ/$CUSTOM_DIR/$chkFn" "$mntName"
          #
       fi
-   elif [ $mntName -nt "$PWL_PRJ/$CUSTOM_DIR/$chkFn" ] ; then
+   elif [ "$mntName" -nt "$PWL_PRJ/$CUSTOM_DIR/$chkFn" ] ; then
       #
       # the mounted file system file is newer than the custom file
       #
@@ -679,7 +684,7 @@ function custom_refresh()
           10
       if [ "$?" = "0" ] ; then
          # User confirmed, replace file
-         custom_add $mntName $chkFn
+         custom_add "$mntName" "$chkFn"
       fi
    else
       $decho "Custom Files same date"
@@ -710,7 +715,7 @@ function custom_remove ()
       if [ -z "$srcName" ] ; then
          return 0
       fi
-      if [ ! -e "$PWL_PRJ"/"$CUSTOM_DIR"/$srcName ] ; then
+      if [ ! -e "$PWL_PRJ"/"$CUSTOM_DIR"/"$srcName" ] ; then
          show_message "File Not Found" " Check path and name and guess again"
       else
          gotOne=1
@@ -795,7 +800,7 @@ function custom_depend()
 {
    # list dependencies required for all custom files
    #
-   for custFn in `cat $PWL_PRJ/$CUSTOM_LST` ; do
+   while read custFn; do
       if [ -x $PWL_PRJ/$CUSTOM_DIR/$custFn ] ; then
          # check only exectables (directories are executable)
          # no way to tell if its executable shell or binary file, just
@@ -808,7 +813,7 @@ function custom_depend()
                grep -v "not a dynamic executable" | cut -f1 -d"="  | cut -f2
          fi
       fi
-   done
+   done < $PWL_PRJ/$CUSTOM_LST
 }
 
 #
@@ -822,14 +827,14 @@ function custom_reload()
    #
    grep "^#" $PWL_PRJ/$CUSTOM_SRC | sed s/\#//g > .custom.srcdirs
    #
-   for srcDestFn in `cat .custom.srcdirs` ; do
+   while read srcDestFn; do
       destFn=${srcDestFn##*=}
       srcFn=${srcDestFn%%=*}
       #
       $decho "Reloading source files from $srcFn"
-      custom_source $srcFn $destFn
-      custom_add $srcFn $destFn
-   done
+      custom_source "$srcFn" "$destFn"
+      custom_add "$srcFn" "$destFn"
+   done < .custom.srcdirs
    #
    $decho "done custom_reload"
 }
@@ -908,8 +913,8 @@ function custom_new()
    #
    # Update the custom list configuration
    #
-   custom_source $srcName $destName
-   custom_add    $srcName $destName
+   custom_source "$srcName" "$destName"
+   custom_add    "$srcName" "$destName"
    if [ ! $? = 0 ] ; then
       show_message "Custom files not added" \
                    "Could not add to project the custom file $srcName"
@@ -970,7 +975,7 @@ function menu_custom()
       #
       #  build list of files from custom directory, flag based on status file
       #
-      build_custom .custom.lst $currDir
+      build_custom .custom.lst "$currDir"
       show_files "Configure Custom Files Menu" .custom.lst 2>.result
       retVal=$?
       read selection <.result
@@ -994,51 +999,51 @@ function menu_custom()
             ;;
          0|3|4|5|6)
             # file or command selected, assign default
-            filesDefault=$selection
+            filesDefault="$selection"
             #
             # operate command or toggle
             #
-            if [ $selection = "Define" ] ; then
+            if [ "$selection" = "Define" ] ; then
                # define source location and copy new custom file(s)
                custom_new
             #
-            elif [ $selection = "Delete" ] ; then
+            elif [ "$selection" = "Delete" ] ; then
                # prompt to delete all references to custom file(s)
                custom_remove "/"
             #
-            elif [ $selection = "Reload" ] ; then
+            elif [ "$selection" = "Reload" ] ; then
                # delete existing files, reload from source directories
                custom_delete "/" FILES_ONLY
                custom_reload
 
-            elif [ $selection = "Rebuild" ] ; then
+            elif [ "$selection" = "Rebuild" ] ; then
                custom_rebuild
 
-            elif [ $selection = "Add" ] ; then
+            elif [ "$selection" = "Add" ] ; then
                # include all custom files
                dir_tree_list_all $PWL_PRJ/$CUSTOM_DIR $PWL_PRJ/.$CUSTOM_LST
             #
-            elif [ $selection = "Remove" ] ; then
+            elif [ "$selection" = "Remove" ] ; then
                # exclude all custom files
                echo "" > $PWL_PRJ/.$CUSTOM_LST
             #
-            elif [ $selection = "Total"  ] || [ $selection = "Skip" ] ; then
+            elif [ "$selection" = "Total"  ] || [ "$selection" = "Skip" ] ; then
                # ignore misc stuff
                xx=1
             #
-            elif [ $retVal != "0" ] ; then
+            elif [ "$retVal" != "0" ] ; then
                # toggle as included or excluded in file list
-               custom_toggle $selection
+               custom_toggle "$selection"
             else
                # traverse directories if "ENTER" pressed
                #
-               if [ -d $currDir/$selection ] ; then
+               if [ -d "$currDir"/"$selection" ] ; then
                   # traverse into a selected directory, and record its path
                   # 
-                  tmploc=$PWD
-                  cd $currDir/$selection
-                  currDir=$PWD
-                  cd $tmploc
+                  tmploc="$PWD"
+                  cd "$currDir"/"$selection"
+                  currDir="$PWD"
+                  cd "$tmploc"
                fi
             fi
             ;;
@@ -1087,7 +1092,7 @@ function custom_main()
             usage
             ;;
          "--project")
-            pwl_init_project $1
+            pwl_init_project "$1"
             if [ "$2" != "" ] ; then
                shift
             fi
@@ -1096,27 +1101,27 @@ function custom_main()
             custom_init
             ;;
          "--toggle")
-            custom_toggle $1
+            custom_toggle "$1"
             shift
             ;;
          "--delete")
-            custom_delete $1
+            custom_delete "$1"
             shift
             ;;
          "--depends")
             custom_depend
             ;;
          "--add")
-            custom_add $1 $2
+            custom_add "$1" "$2"
             shift ; shift
             ;;
          "--source")
-            custom_source $1 $2
-            custom_add $1 $2
+            custom_source "$1" "$2"
+            custom_add "$1" "$2"
             shift ; shift
             ;;
          "--extract")
-            custom_extract $1
+            custom_extract "$1"
             # print count of files extracted on stderr stream
             echo "$?"  1>&2
             shift

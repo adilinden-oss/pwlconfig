@@ -146,7 +146,7 @@ func_rd_build_comp_rd_fat () {
 
     # compress the ramdisk
     func_rd_action m "Compressing $rd_loop_dev into $rd_ramdisk..."
-    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs | gzip -v9 > $rd_tmp/$rd_ramdisk } >>$rd_log 2>&1
+    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs | gzip -v9 > $rd_tmp/$rd_ramdisk; } >>$rd_log 2>&1
     func_rd_action t
 
     # free the loopback device
@@ -166,6 +166,8 @@ func_rd_build_comp_rd_fat () {
         func_rd_action f
         echo "  +Available Space: $rd_size_avail"
         echo "  +Required Space:  $((rd_size_kernel + rd_size_ramdisk + rd_size_margin))"
+        echo "  +Available Space: $rd_size_avail" >>$rd_log
+        echo "  +Required Space:  $((rd_size_kernel + rd_size_ramdisk + rd_size_margin))" >>$rd_log
         return 1
     else
         func_rd_action s
@@ -372,7 +374,7 @@ func_rd_build_comp_rd_ext2 () {
 
     # compress the ramdisk
     func_rd_action m "Compressing $rd_loop_dev into $rd_ramdisk..."
-    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs | gzip -v9 > $rd_tmp/$rd_ramdisk } >>$rd_log 2>&1
+    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs | gzip -v9 > $rd_tmp/$rd_ramdisk; } >>$rd_log 2>&1
     func_rd_action test
 
     # free the loopback device
@@ -392,6 +394,8 @@ func_rd_build_comp_rd_ext2 () {
         func_rd_action f
         echo "  +Available Space: $rd_size_avail"
         echo "  +Required Space:  $((rd_size_kernel + rd_size_ramdisk + rd_size_margin))"
+        echo "  +Available Space: $rd_size_avail" >>$rd_log
+        echo "  +Required Space:  $((rd_size_kernel + rd_size_ramdisk + rd_size_margin))" >>$rd_log
         return 1
     else
         func_rd_action s
@@ -570,6 +574,8 @@ func_rd_build_uncomp_rd_fat () {
         func_rd_action f
         echo "  +Available Space: $rd_size_avail"
         echo "  +Required Space:  $((rd_size_fs + rd_size_boot))"
+        echo "  +Available Space: $rd_size_avail" >> $rd_log
+        echo "  +Required Space:  $((rd_size_fs + rd_size_boot))" >> $rd_log
         return 1
     else
         func_rd_action s
@@ -795,6 +801,8 @@ func_rd_build_uncomp_rd_ext2 () {
         func_rd_action f
         echo "  +Available Space: $rd_size_avail"
         echo "  +Required Space:  $((rd_size_fs + rd_size_boot))"
+        echo "  +Available Space: $rd_size_avail" >> $rd_log
+        echo "  +Required Space:  $((rd_size_fs + rd_size_boot))" >> $rd_log
         return 1
     else
         func_rd_action s
@@ -1012,7 +1020,7 @@ func_rd_build_ro_root_rd () {
 
     # compress the loop device into a ramdisk
     func_rd_action m "Compressing loopback device into ramdisk.dev..."
-    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs_dev | gzip -v9 > $rd_tmp/ramdisk.dev } >>$rd_log 2>&1
+    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs_dev | gzip -v9 > $rd_tmp/ramdisk.dev; } >>$rd_log 2>&1
     func_rd_action test
 
     # decomission ramdisk
@@ -1068,7 +1076,7 @@ func_rd_build_ro_root_rd () {
 
     # compress the loop device into a ramdisk
     func_rd_action m "Compressing loopback device into ramdisk.etc..."
-    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs_etc | gzip -v9 > $rd_tmp/ramdisk.etc } >>$rd_log 2>&1
+    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs_etc | gzip -v9 > $rd_tmp/ramdisk.etc; } >>$rd_log 2>&1
     func_rd_action test
 
     # decomission ramdisk
@@ -1133,6 +1141,8 @@ func_rd_build_ro_root_rd () {
         func_rd_action f
         echo "  +Available Space: $rd_size_avail"
         echo "  +Required Space:  $((rd_size_fs + rd_size_home))"
+        echo "  +Available Space: $rd_size_avail" >> $rd_log
+        echo "  +Required Space:  $((rd_size_fs + rd_size_home))" >> $rd_log
         return 1
     else
         func_rd_action s
@@ -1398,7 +1408,7 @@ func_rd_build_fd_common () {
 
     # compress ramdisk
     func_rd_action m "Compressing $rd_loop_dev into $rd_ramdisk..."
-    dd if=$rd_loop_dev bs=1k count=$rd_size_fs | gzip -v9 > $rd_tmp/$rd_ramdisk
+    { dd if=$rd_loop_dev bs=1k count=$rd_size_fs | gzip -v9 > $rd_tmp/$rd_ramdisk; } >> $rd_log 2>&1
     func_rd_action test || return 1
 
     # free loopback device
@@ -1418,6 +1428,8 @@ func_rd_build_fd_common () {
         func_rd_action f
         echo "  +Available Space: $rd_size_avail"
         echo "  +Required Space:  $((rd_size_kernel + rd_size_ramdisk))"
+        echo "  +Available Space: $rd_size_avail" >> $rd_log
+        echo "  +Required Space:  $((rd_size_kernel + rd_size_ramdisk))" >> $rd_log
         return 1
     else
         func_rd_action s
@@ -1442,12 +1454,12 @@ func_rd_build_fd_common () {
 func_rd_build_fd_raw () {
 
     # call the common portion
-    func_rd_build_fd_common
+    func_rd_build_fd_common || return 1
 
     # put the stuff on out floppy device
     # kernel
     func_rd_action m "Copying $rd_kernel to $rd_target..."
-    { dd if=$rd_projectroot/boot/$rd_kernel of=$rd_target bs=1k } >>$rd_log 2>&1
+    { dd if=$rd_projectroot/boot/$rd_kernel of=$rd_target bs=1k; } >>$rd_log 2>&1
     func_rd_action test
 
     # set kernel parameters
@@ -1462,7 +1474,7 @@ func_rd_build_fd_raw () {
 
     # ramdisk image
     func_rd_action m "Copying $rd_ramdisk to $rd_target..."
-    { dd if=$rd_tmp/$rd_ramdisk of=$rd_target bs=1k seek=$rd_size_kernel } >>$rd_log 2>&1
+    { dd if=$rd_tmp/$rd_ramdisk of=$rd_target bs=1k seek=$rd_size_kernel; } >>$rd_log 2>&1
     func_rd_action test
 
     sync
@@ -1493,7 +1505,7 @@ func_rd_build_fd_raw () {
 func_rd_build_fd_fat () {
 
     # call the common portion
-    func_rd_build_fd_common
+    func_rd_build_fd_common || return 1
 
     # install mbr
     func_rd_action m "Installing master boot record...."
@@ -1578,6 +1590,8 @@ func_rd_build_rw_root () {
         func_rd_action f
 	echo "  +Available Space: $rd_size_avail"
 	echo "  +Required Space:  $((rd_size_fs + rd_size_boot_margin))"
+	echo "  +Available Space: $rd_size_avail" >>$rd_log
+	echo "  +Required Space:  $((rd_size_fs + rd_size_boot_margin))" >>$rd_log
 	return 1
     else
         func_rd_action s

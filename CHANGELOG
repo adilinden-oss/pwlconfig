@@ -1,4 +1,39 @@
 
+v0.61.0 -- March 4, 2001
+------------------------
+ o Changed kernel-basic to include bridging, multicast and tunneling
+ o Added brcfg, the bridging configuration tool
+ o Added smtpclient, the command line agent to send mail using smtp
+ o Added rrdtool, the round robin database and charting tool
+ o Added sound utilities for mp3 recording
+   - lame and mp3rtp
+   - aumix
+   - bplay
+ o Added mpg123
+
+v0.60.2 -- February 8, 2001
+---------------------------
+ o Minor fix to RangeLAN driver location in kernel package
+
+v0.60.1 -- January 27, 2001
+---------------------------
+ o Experimental release including kernel build feature
+
+v0.60.0 -- January 21, 2001
+---------------------------
+ o No complaints about 0.53.27. Consider this one a stable milestone.
+ o Updated kernel 2.2.17 package to include pwl_kernel specifics
+ o Remove 2.2.14 kernel
+
+v0.53.27 -- January 12, 2001
+----------------------------
+ o Bug fixes in pwlconfig scripts, more verbose logging for pwl_target
+   and fix for embedded spaces in file and directory names
+
+v0.53.25 -- December 20, 2000
+-----------------------------
+ o Fixed incompatability bug in scripts between bash-1.14 and bash-2.03
+
 v0.53.24 -- December 17, 2000
 -----------------------------
  o Fixed bugs and added features in pwlonfig scripts as outline

@@ -90,6 +90,7 @@ do_bin () {
 #
 do_pwlconfig () {
     tar czpf $cfgname \
+        --exclude="Embedded_Build/bin/src" \
         Embedded_Build/scripts                 \
         Embedded_Build/bin                     \
         Embedded_Build/examples                \

@@ -459,6 +459,7 @@ func_rd_action () {
         if [ "$rd_action_verbosity" != "quiet" -a "$2" ]; then
             echo -ne "$2  "
         fi
+	echo -n $2 >> $rd_log
         ;;
     s*)
         # success
@@ -522,6 +523,8 @@ func_rd_action_success () {
     [ "$rd_action_verbosity" = "colour" ] && $rd_action_colour_normal
     [ "$rd_action_verbosity" = "colour" ] && echo -n "  ]"
     echo -ne "\n"
+    # also log our progress
+    echo "ok" >> $rd_log
 }
 
 ######################################################################
@@ -543,6 +546,8 @@ func_rd_action_failure () {
     [ "$rd_action_verbosity" = "colour" ] && $rd_action_colour_normal
     [ "$rd_action_verbosity" = "colour" ] && echo -n "]"
     echo -ne "\n"
+    # also log our progress
+    echo "failed" >> $rd_log
 }
 
 ######################################################################
@@ -563,6 +568,8 @@ func_rd_action_warning () {
     [ "$rd_action_verbosity" = "colour" ] && $rd_action_colour_normal
     [ "$rd_action_verbosity" = "colour" ] && echo -n " ]"
     echo -ne "\n"
+    # also log our progress
+    echo "warn" >> $rd_log
 }
 
 ######################################################################
@@ -728,7 +735,7 @@ func_rd_boot_initrd () {
 
     # create the initrd
     func_rd_action m "Compressing loopback device into a initrd..."
-    { dd if=$rd_loop_dev bs=1k count=$rd_initrd_size | gzip -v9 > $rd_tmp/$rd_initrd } >>$rd_log 2>&1
+    { dd if=$rd_loop_dev bs=1k count=$rd_initrd_size | gzip -v9 > $rd_tmp/$rd_initrd; } >>$rd_log 2>&1
     func_rd_action test
 
     # decomission loopback

@@ -150,7 +150,8 @@ function build_main()
    fi
 
    echo -n "" >$1
-
+   echo -n " 'Kernel'    'Create Custom Kernel Package -->' "          >>$1
+   echo -n " 'skip'      '----' "                                      >>$1
    echo -n " 'PkgConfig' 'Configure Project File System -->' "         >>$1 
    if [ "$pwlExp" = "true" ]; then
        echo -n " 'Update'    'Create or Update \"$CFG_BASE\" from File System (experimental) --> ' " >>$1
@@ -371,7 +372,7 @@ function device_load_fs ()
    #
    # execute commands to load the file system to the device
    #
-   . ./$PWL_TARGET >.load.log 
+   . ./$PWL_TARGET # >.load.log 
    #
    # show dialog with success or fail
    #
@@ -396,7 +397,7 @@ function device_load_fs ()
        $decho "Skip results..." 
    else
        #
-       show_results .load.log "Load $deviceName Results"
+       show_results $rd_log "Load $deviceName Results"
        $decho "Show results..." 
    fi
    #
@@ -432,6 +433,9 @@ function menu_main()
          show_help menu_main            # help
       else
          case "$selection" in
+	     "Kernel")
+	             $PWL_KERNEL
+	     ;;	     
              "PkgConfig")
                      $PWL_PKGCONF
              ;;

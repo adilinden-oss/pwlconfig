@@ -5,10 +5,10 @@
 #
 PWL_MAJ_VER="0"           # major release number
 #
-PWL_MIN_VER="53"          # minor release number
+PWL_MIN_VER="61"          # minor release number
 #
 PWL_REV_VER=""           # revision level
-PWL_REV_VER=".24"           # revision level
+PWL_REV_VER=".0"           # revision level
 #
 #  Current PeeWeeLinux Release
 #
@@ -30,7 +30,54 @@ Requires lxdialog from /usr/src/linux/scripts/lxdialog
 History
 -------
 
+Thu Jan 27 2001 Adi Linden <adi@adis.on.ca>
+- v0.60.1
+- pwl_target_load
+    fixed return from rd_fd_common in case of false
+- pwl_target_function
+    added display of fail or success to log
+- pwl_functions
+    added PWL_KERNEL variable
+- pwlconfig
+    added Custom selection for custom kernel build
+- pwl_kernel
+    changed extract function for final kernel-source rpm
+    added temporary build root location
+    added create tar file section
+
+Fri Jan 12 2001 Adi Linden <adi@adis.on.ca>
+- v0.53.27
+- pwl_target_functions
+    at line 1401 added redirect to $rd_log
+- pwl_target
+    changed output to be in colour
+- pwl_config
+    changed call to pwl_target to no longer supress output
+    added output of $rd_log as logfile
+- pwl_custom
+    fixed embedded spaces in custom files and directories bug
+    changed for loops relating to .results and custom.list to
+      while read statements
+    added proper quoting to some variables to ensure embedded
+      spaces are handled properly
+
+Thu Jan 04 2001 Adi Linden <adi@adis.on.ca>
+- pwl_functions
+    added KBW_DIR variable to define a global kernel build work directory
+
+Wed Jan 03 2001 Ralph Stickley <rstickley@datalux.com>
+- pwl_kernel
+    initial development
+
+Wed Dec 20 2000 Adi Linden <adi@adis.on.ca>
+- v0.53.25
+- determined incompatability with bash-2.x. See next.
+- pwl_target_funtions and pwl_target_load
+    changed group statements using curly brackets to terminate inside brackets
+    with semicolon. I.e. { : } > /dev/null -to- { :; } > /dev/null
+
 Sun Dec 17 2000 Adi Linden <adi@adis.on.ca>
+- v0.53.24
 - pwlconfig
     added feature to check for packaged directory and extract rpms if not
     there
