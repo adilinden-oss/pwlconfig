@@ -1,0 +1,97 @@
+#!/bin/bash
+
+# config
+#
+# I was going to name this configure. Even though the name would
+# be correct I didn't want to cause confusion.
+#
+# This script sets up the environment to build using PeeWeeLinux
+# source rpms.
+#
+
+#
+# Variables
+#
+MACRO_FILE=".rpmmacros"
+CURR_PATH=`pwd`
+TOP_PATH="${CURR_PATH}/src"
+VENDOR='PeeWeeLinux <http://peeweelinux.com>'
+
+#
+# Check path
+#
+if echo $CURR_PATH | grep -v Embedded_Build$; then
+    echo "This script has to be run from the Embedded_Build directory...."
+    exit
+fi
+
+#
+# Ask for rpmmacros info
+# 
+cat <<-EOF
+	Your environment has to be configured to properly
+	build PeeWeeLinux from SRPMS.
+
+	The .rpmmacros file set various rpm variables and
+	needs to reside in you home ($HOME) directoy.
+
+	Note that if you are building PeeWeeLinux as root
+	this will affect all RPM installs on your system!
+	It is recommended that the .rpmmacros file be
+	removed prior to using rpm on your running system!
+
+EOF
+
+while [ -z "$U_NAME" ]; do
+    echo -n "What is your name? "
+    read U_NAME
+done
+
+while [ -z "$U_EMAIL" ]; do
+    echo -n "What is your email? "
+    read U_EMAIL
+done
+
+echo "The path to your RPM build tree is ...... $TOP_PATH"
+echo "The path to your home directory is ...... $HOME"
+echo "The vendor info used is ................. $VENDOR"
+echo "The packager info is .................... $U_NAME <$U_EMAIL>"
+echo
+echo -n "Is the information correct (y/n)? "
+read PROMPT 
+if [ "$PROMPT" != "y" ]; then
+    echo
+    echo "You choose NOT to proceed.... exiting....!"
+    echo
+    exit
+fi
+
+
+#
+# Create rpmmacros file
+#
+write_file () {
+cat <<EOF
+%_topdir	$TOP_PATH
+%vendor		$VENDOR
+%packager	$U_NAME <$U_EMAIL>
+EOF
+}
+
+write_file > $HOME/.rpmmacros
+
+#
+# Output information
+# 
+echo
+echo "The $HOME/.rpmmacros file has been written as follows:"
+echo
+echo "------------------------ Start of File -----------------------"
+cat $HOME/.rpmmacros
+echo "------------------------- End of File ------------------------"
+echo
+
+#
+# Done with .rpmmacros
+#
+echo "All done!"

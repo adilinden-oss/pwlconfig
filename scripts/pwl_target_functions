@@ -1018,6 +1018,20 @@ func_rd_fstab_floppy () {
 EOF
 }
 
+######################################################################
+#
+# func_rd_fstab_rw_root
+#
+# This function creates the fstab file used for the read-write  
+# root filesystem.
+# 
+
+func_rd_fstab_rw_root () {
+    cat <<-EOF
+	${rd_boot}1     /               ext2    defaults
+	none            /proc           proc    defaults
+EOF
+}
 
 ######################################################################
 #

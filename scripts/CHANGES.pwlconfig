@@ -7,7 +7,7 @@ PWL_MAJ_VER="0"           # major release number
 #
 PWL_MIN_VER="53"          # minor release number
 #
-PWL_REV_VER="5"           # revision level
+PWL_REV_VER="6"           # revision level
 #
 #  Current PeeWeeLinux Release
 #
@@ -31,6 +31,7 @@ History
 
 Wed Oct 25 2000 Adi Linden <adi@adis.on.ca>
 - added floppy w/syslinux bootloader target
+- added rw root target
 - fixed handling of returned value of pwl_envsel in pwl_default for <exit>
 
 Mon Oct 23 2000 Adi Linden <adi@adis.on.ca>

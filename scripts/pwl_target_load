@@ -1528,3 +1528,118 @@ func_rd_build_fd_fat () {
     umount $rd_target
     func_rd_action test
 }
+
+######################################################################
+#
+# func_rd_build_rw_root        build single read/write filesystem on flas
+#
+# This function will create a target filesystem consisting of a single
+# ext2 partition. Lilo is the bootloader of choice.
+#
+# Chain of events
+# ===============
+#
+# 1.  Sanity check
+# 2.  Calculate filesystem size
+# 3.  Create partition of appropriate size on target
+#     Note: We claim all space on the target device
+# 4.  Create ext2 filesystem
+# 5.  Mount target
+# 6.  Copy files
+# 7.  Run ldconfig
+# 8.  Create init script files
+# 9.  Install lilo
+# 10. Unmount target
+#
+
+func_rd_build_rw_root () {
+
+    # sanity check
+    func_rd_sanity || return 1
+    
+    # determine filesystem size
+    func_rd_action m "Determine space on target device...."
+    # get flash size
+    rd_size_avail=`sfdisk -s $rd_target`
+    # determine root filesystem size
+    rd_size_fs=`du -s -k $rd_projectroot | cut -f 1`
+    # check if things will fit
+    if [ $((rd_size_fs + rd_size_boot_margin)) -gt $rd_size_avail ]; then
+        func_rd_action f
+	echo "  +Available Space: $rd_size_avail"
+	echo "  +Required Space:  $((rd_size_fs + rd_size_boot_margin))"
+	return 1
+    else
+        func_rd_action s
+    fi
+
+    # create partition
+    func_rd_action m "Partitioning target device $rd_target...."
+    sfdisk -q $rd_target >>$rd_log 2>&1 <<-EOF
+,,83,*
+EOF
+    func_rd_action test
+
+    # create filesystem
+    func_rd_action m "Creating ext2 filesystem...."
+    mke2fs -b 4096 -m0 ${rd_target}1 >>$rd_log 2>&1
+    func_rd_action test
+
+    # mount device
+    func_rd_action m "Mounting device ${rd_target}1...."
+    mount -t ext2 ${rd_target}1 $rd_mount
+    func_rd_action test
+
+    # remove lost and found
+    rm -rf $rd_mount/lost+found
+    
+    # copy files
+    func_rd_action m "Copying filesystem to target...."
+    tar cp --directory=$rd_projectroot ./ | tar xp --directory=$rd_mount
+    if [ "$?" = "0" ]; then
+        func_rd_action s
+    else
+        func_rd_action f
+    fi
+    
+    # installing the bootloader     
+    func_rd_action m "Installing lilo bootloader...."
+    # create lilo.conf
+    rd_bp_root=${rd_boot}1
+    rd_bp_kernel=$rd_mount/boot/$rd_kernel
+    rd_bp_bootb=$rd_mount/boot/boot.b
+    rd_bp_map=$rd_mount/boot/map
+    func_rd_boot_lilo > $rd_tmp/lilo.conf
+    # we need to pull some stuff from lilo.conf
+    sed 's/\(initrd\)/#\1/' $rd_tmp/lilo.conf > $rd_tmp/.lilo.conf
+    sed 's/\(ramdisk\)/#\1/' $rd_tmp/.lilo.conf > $rd_tmp/lilo.conf
+    rm -f $rd_tmp/.lilo.conf
+    # copy boot.b
+    cp -f $rd_bootb $rd_mount/boot/boot.b
+    # finally run lilo
+    lilo -v -C $rd_tmp/lilo.conf >>$rd_log 2>&1
+    func_rd_action test
+
+    # add fstab and rc.init
+    func_rd_action m "Creating rc.init and fstab...."
+    if [ "$rd_initscripts" = "y" ]; then
+
+        # let's do it
+	func_rd_fstab_rw_root > $rd_mount/etc/fstab
+	func_rd_init_rd > $rd_mount/rc.init
+
+	# rc.init needs to be set exec
+	chmod 775 $rd_mount/rc.init
+
+	# send ok
+	func_rd_action s
+    else
+        func_rd_action w
+    fi
+
+    # unmount target
+    func_rd_action m "Unmounting device ${rd_target}1...."
+    umount ${rd_target}1
+    func_rd_action test
+}
+

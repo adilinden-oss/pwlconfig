@@ -101,9 +101,9 @@ function build_pwl_envsel ()
    if [ "$pwlExp" = "true" ]; then
        echo -n " 'iso_rd' '$iso_rd_desc (experimental)' " >> $1
        echo -n " 'iso_ro' '$iso_ro_desc (experimental)' " >> $1
-       echo -n " 'skip' ' ----- For testing only!  -----' " >> $1
-       echo -n " 'rw_root' '$rw_root_desc (experimental)' " >> $1 
    fi
+   echo -n " 'skip' ' ----- For testing only!  -----' " >> $1
+   echo -n " 'rw_root' '$rw_root_desc' " >> $1 
    #
    $decho "end build_pwl_envsel"
 }

@@ -19,9 +19,10 @@
 #
 function distribute_usage () {
     echo ""
-    echo "Usage:   distribute [all|src|bin|cfg]"
+    echo "Usage:   distribute [all|iso|src|bin|cfg]"
     echo ""
     echo "           all    create all archives"
+    echo "           iso    create iso image"
     echo "           src    create source archive"
     echo "           bin    create binary archive"
     echo "           cfg    create archive of the"
@@ -94,7 +95,12 @@ do_pwlconfig () {
         Embedded_Build/examples                \
         Embedded_Build/pwlconfig  
 }
-
+#
+# create the iso image
+#
+do_iso () {
+    mkisofs -r -J -o $isoname Embedded_Build
+}
 #
 # let's do it
 #
@@ -119,6 +125,7 @@ if echo `pwd` | grep -q Embedded_Build$; then
     srcname=peeweelinux-${version}-src.tar.gz
     binname=peeweelinux-${version}-bin.tar.gz
     cfgname=peeweelinux-${version}-cfg.tar.gz
+    isoname=peeweelinux-${version}.iso
 
     # change working directory
     cd ../
@@ -129,6 +136,7 @@ if echo `pwd` | grep -q Embedded_Build$; then
         do_pwlconfig
         do_bin
         do_src
+        do_iso
         #
         # get sizes for lsm template         
         srcsize=`du -h $srcname | cut -f 1`
@@ -138,6 +146,9 @@ if echo `pwd` | grep -q Embedded_Build$; then
         #
         # output lsm template
         lsm_template > peeweelinux.lsm
+        ;;
+    iso)
+        do_iso
         ;;
     bin)
         do_bin
