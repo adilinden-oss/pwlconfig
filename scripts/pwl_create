@@ -45,6 +45,15 @@
 #    include any custom files. It is also ideally suited as a first
 #    project to get your feet wet with PeeWeeLinux and pwlconfig.
 #
+# "wireless-isa.tgz"
+#
+#    The "wireless-isa" project is a well equipped wireless router
+#    utilizing a ne2000 compatible isa card and a Proxim Symphony
+#    isa pnp wireless network card.
+#
+#    This project will run fine from a CompactFlash device but is
+#    too large for a floppy type system.
+#
 #
 #END
 ######

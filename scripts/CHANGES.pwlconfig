@@ -7,11 +7,12 @@ PWL_MAJ_VER="0"           # major release number
 #
 PWL_MIN_VER="53"          # minor release number
 #
-PWL_REV_VER="10"           # revision level
+PWL_REV_VER=""           # revision level
+PWL_REV_VER=".21"           # revision level
 #
 #  Current PeeWeeLinux Release
 #
-PWL_VER="${PWL_MAJ_VER}.${PWL_MIN_VER}.${PWL_REV_VER}"
+PWL_VER="${PWL_MAJ_VER}.${PWL_MIN_VER}${PWL_REV_VER}"
 #
 return
 #
@@ -28,6 +29,37 @@ Requires lxdialog from /usr/src/linux/scripts/lxdialog
 
 History
 -------
+
+Wed Nov 29 2000 Adi Linden <adi@adis.on.ca>
+- updated wireless-isa example
+
+Tue Nov 14 2000 Adi Linden <adi@adis.on.ca>
+- v0.53.16
+- pwl_target_functions
+    added space behing $rd_mount in sanity check routine
+- v0.53.15
+- pwl_target_functions
+    added mount /dev to rc.init for read-only root target
+    removed echo "Mounting root read-write..." statement
+- initscripts
+    added silent boot scripts if /etc/boot.silent is found
+    
+Fri Nov 10 2000 Adi Linden <adi@adis.on.ca>
+- v0.53.14
+- pwl_defaults, pwl_target_functions
+    added rd_bp_append variable
+    changed parsing of configuration file to increase speed
+    added upgrade function for old configuration files
+
+Thu Nov 09 2000 Adi Linden <adi@adis.on.ca>
+- v0.53.13
+- pwl_create
+    added wirless-isa project and help description
+
+Tue Nov 07 2000 Adi Linden <adi@adis.on.ca>
+- pwl_target_functions
+    removed 'mount -a' statement from rc.init 
+    added 'mount -a' statement to rc.sysinit
 
 Mon Nov 06 2000 Adi Linden <adi@adis.on.ca>
 - absolute RPM variable paths broke extract_all function, fixed

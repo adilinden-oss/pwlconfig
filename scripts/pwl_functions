@@ -209,7 +209,7 @@ function get_string ()
          answer="`cat .result`"
       fi
       if [ ! -s .result ] ; then  # empty results
-         return 1
+         return 2
       fi
    fi
    # return result
@@ -899,8 +899,10 @@ function default_define()
    # simply execute the temporary defaults file
    #
    if [ -f "$DFT_FILE_TMP" ] ; then
+      $decho "loading tmp file"
       . ./$DFT_FILE_TMP
    elif [ -f "$PWL_PRJ/$DEFAULT_CFG" ] ; then
+      $decho "loading real file"
       . ./"$PWL_PRJ/$DEFAULT_CFG"
    else
       $decho "default not found"

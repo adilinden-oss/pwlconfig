@@ -1,0 +1,13 @@
+#!/bin/sh
+
+echo "<$IFS>"
+
+loop () {
+
+local IFS
+IFS="test"
+echo "$IFS"
+
+}
+loop
+echo "<$IFS>"

@@ -342,26 +342,21 @@ function device_load_fs ()
    $decho "start device_load_fs"
    #
    # make sure we have a current default parameters
+   # abort if version mismatch or suspected corruption
    #
-   # 1. case config file pre 0.53
-   #
-   if [ -z "$pwl_version" ]; then
-       $decho "incompatible defaults file..."
-       # show dialog box
-       show_confirm "Configuration File Incompatibility" \
-           "The configuration file is pre 0.53 and incompatible with PeeWeeLinux $PWL_VER. Reset the configuration for $CFG_BASE?" "9"
-       if [ $? = "1" ] || [ $? = "255" ]; then
-           $decho "Nothing was done. User cancelled..."
-       else
-           $PRJ_DEFAULTS --reset FLASH
-           if [ "$?" = "1" ] ; then
-               cleanup 1
-           fi
-           default_define   # now load default variables
-           show_message "Configuration Reset" \
-               "The configuration for $CFG_BASE has been reset. Please check settings"
-           $decho "Reset configuration..."
-       fi
+   $decho "compare versions current $PWL_VER, config $pwl_version"
+   if [ -z "$pwl_version" ] ; then
+       $decho "bad defaults file..."
+       # show message
+       show_message "Configuration File Error" \
+           'The configuration file is either pre 0.53 or corrupted. Select "Configure Target Hardware" before attempting to load system.'
+       $decho "refuse to load target..."
+       return 1
+   elif [ "$pwl_version" != "$PWL_VER" ]; then    
+       $decho "version mismatch..."
+       show_message "Configuration Version Mismatch" \
+           'The configuration file version does not match the current PeeWeeLinux version. Select "Configure Target Hardware" and upgrade configuration before attempting to load system.' "8"
+       $decho "refuse to load target..."
        return 1
    fi
    #
@@ -450,7 +445,7 @@ function menu_main()
              ;;
              "Target")
                      $PRJ_DEFAULTS
-                     default_define   # reload if any defaults changed
+                     default_define
              ;;
              "Load")
                      device_load_fs

@@ -192,6 +192,9 @@ function func_rd_defaults () {
     # vga options
     rd_bp_vga=normal
 
+    # append options
+    rd_bp_append=""
+
     ####
     # single ramdisk parameters
 
@@ -631,7 +634,7 @@ func_rd_sanity () {
 
     # make sure out mount directory doesn't have anything mounted
     func_rd_action m "Testing that nothing is mounted on mount directory..." 
-    if mount | grep -q "$rd_mount"; then
+    if mount | grep -q "$rd_mount "; then
         func_rd_action f
     else
         func_rd_action s
@@ -846,7 +849,7 @@ func_rd_break_loopback () {
 func_rd_boot_syslinux () {
     cat <<-EOF
 	default $rd_bp_kernel
-	append ramdisk_size=$rd_bp_rd root=$rd_bp_root initrd=$rd_bp_initrd
+	append ramdisk_size=$rd_bp_rd root=$rd_bp_root initrd=$rd_bp_initrd vga=$rd_bp_vga $rd_bp_append
 EOF
 }
 
@@ -878,6 +881,13 @@ func_rd_boot_lilo () {
 	    ramdisk   = $rd_bp_rd
 	    read-only
 EOF
+
+# now echo some output dependend on whether or not variables are set
+# append options
+if [ -n "$rd_bp_append" ]; then
+    echo "    append    = \"$rd_bp_append\""
+fi    
+
 }
 
 ######################################################################
@@ -946,7 +956,7 @@ EOF
 func_rd_fstab_comp_rd_fat () {
     cat <<-EOF
 	/dev/ram0       /               ext2    defaults
-	${rd_boot}1       /mnt/flash      msdos   ro,defaults
+	${rd_boot}1       /mnt/flash      msdos   ro,noauto,defaults
 	none            /proc           proc    defaults
 EOF
 }
@@ -962,7 +972,7 @@ EOF
 func_rd_fstab_comp_rd_ext2 () {
     cat <<-EOF
 	/dev/ram0       /               ext2    defaults
-	${rd_boot}1       /mnt/flash      ext2    ro,defaults
+	${rd_boot}1       /mnt/flash      ext2    ro,noauto,defaults
 	none            /proc           proc    defaults
 EOF
 }
@@ -978,9 +988,9 @@ EOF
 
 func_rd_fstab_uncomp_rd () {
     cat <<-EOF
-        /dev/ram0       /               ext2    defaults
-        ${rd_boot}2       /mnt/flash      ext2    ro,defaults
-        none            /proc           proc    defaults
+	/dev/ram0       /               ext2    defaults
+	${rd_boot}2       /mnt/flash      ext2    ro,noauto,defaults
+	none            /proc           proc    defaults
 EOF
 }
 
@@ -1057,7 +1067,6 @@ func_rd_init_rd () {
 	export PATH
 
 	# Mount filesystems
-	echo "Remounting root read-write...."
 	mount -n -o remount,rw /
 
 	# Clear mtab
@@ -1065,9 +1074,6 @@ func_rd_init_rd () {
 
 	# Enter root into mtab
 	mount -f /
-
-	# Mount remaining filesystems
-	mount -a
 
 	# Let the 'real' rc.sysinit take over
 	exec /etc/rc.sysinit
@@ -1098,6 +1104,7 @@ func_rd_init_ro_root_rd () {
 	export PATH
 
 	# Mount /etc
+	mount -n /dev
 	mount -n /etc
 
 	# Now that we have a read-write mtab
@@ -1105,10 +1112,8 @@ func_rd_init_ro_root_rd () {
 
 	# Enter root and etc into mtab
 	mount -f /
-        mount -f /etc
-
-	# Mount remaining filesystems
-	mount -a
+	mount -f /dev
+	mount -f /etc
 
 	# Let the 'real' rc.sysinit take over
 	exec /etc/rc.sysinit

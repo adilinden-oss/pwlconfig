@@ -16,6 +16,9 @@
 #   --help                     this help screen
 #   --project project name     use this project (default is last project)
 #
+# Where:
+#  <device type >  - one of DOC, FLASH, FLOPPY or CDROM
+#  <parmId>        - one of the parameters defined in the defaults file
 ###
 #
 # History see CHANGES.pwlconfig
@@ -289,6 +292,7 @@ function default_change()
    # prompt or use given new value
    #
    if [ "$2" = "" ] ; then
+
       #
       # prompt for new value
       #
@@ -296,26 +300,13 @@ function default_change()
                  "Enter new default value for $promptValue:" \
                  newValue $parmValue
 
-      if [ "$?" != "0" -a "$?" != "2" ]; then
-          return
-      fi	  
-      if [ -z "$newValue" ] ; then
-          #
-	  # allow a zero return value for append option
-	  #
-          if [ "$parmName" != "rd_bp_append" ]; then
-              return
-	  fi    
+      if [ "$?" != "0" ] ; then
+         return
       fi
-   elif [ "$2" = " " ]; then
-      #
-      # detect dummy data and remove
-      #
-      newValue=""
+      if [ -z "$newValue" ] ; then
+         return
+      fi
    else
-      #
-      # use the value passed
-      #
       newValue=$2
    fi
    # lets use sed to replace the value and keep the order of the file
@@ -385,111 +376,6 @@ function default_setup()
 
 #=============================================================================
 #
-# default_version_check
-# 
-# This function checkes the version of the configuration file and displays
-# appropriate warning messages
-#
-# 1. case config file pre 0.53
-#
-function default_version_check () 
-{
-    #
-    # no version info
-    #
-    if [ -z "$pwl_version" ]; then
-        $decho "incompatible defaults file..."
-        # show dialog box
-        show_confirm "Configuration File Incompatibility" \
-            "The configuration file is pre 0.53 and incompatible with PeeWeeLinux $PWL_VER. Reset the configuration for $CFG_BASE now?" "9"
-        if [ $? = "1" ] || [ $? = "255" ]; then
-            $decho "Nothing was done. User cancelled..."
-	    return 1
-        else
-            default_reset
-            if [ "$?" = "1" ] ; then
-                cleanup 1
-            fi
-            default_define   # now load default variables
-            show_message "Configuration Reset" \
-                "The configuration for $CFG_BASE has been reset. Please check settings"
-            $decho "Reset configuration..."
-        fi
-    #
-    # non matching version info
-    #
-    elif [ "$pwl_version" != "$PWL_VER" ]; then
-        $decho "nonmatching version defaults file...."
-	# show dialog box
-	show_confirm "Old Configuration File" \
-	    "The configuration file is version $pwl_version. You are using PeeWeeLinux $PWL_VER. Do you wish to convert your configuration file to the current version now?" "8"
-	if [ $? = "1" ] || [ $? = "255" ]; then
-	    show_message "No Conversion Done" \
-	        "You will not be able to load target hardware until the configuration has been upgraded."
-	    $decho "Nothing was done. User cancelled..."
-	else
-	    $decho "Converting file...."
-	    # strip comments and blank lines
-	    cat $DFT_FILE_TMP | grep -v "^[ ]*$" | grep -v "^#" > .dft.upgrade
-	    # create new defaults file
-	    make_default
-	    #
-	    # parse old data and import into new file
-	    #
-	    while default_read_function; do
-	        echo -n "."
-	        # require padding?
-	        if echo "$lineIn" | grep -q "^ "; then
-		    tmpPad=" "
-		else
-		    tmpPad=""
-		fi
-		# get parm name
-		tmpName="${lineIn%%=*}"
-		parmName="${tmpName##*export }"
-		# get parm value
-		parmLine="${lineIn#*=}"
-		tmpValue="${parmLine%#*}"
-		# strip quotes and trailing blank space
-		parmValue=`echo $tmpValue | sed 's/\"//g' | sed 's/[ ]*$//'`
-		# we have to send something. An empty parameter is not
-		# allowed. So make sure there's at least a space.
-		if [ -z "$parmValue" ]; then
-		    parmValue=" "
-		fi    
-                #
-		# change value in new file
-		#
-		$decho "Importing <$parmName>..." 
-		$decho "Value <$parmValue>..."
-		default_change "$parmName" "$parmValue" "$tmpPad"
-		lineCnt=$(($lineCnt + 1))
-	    done < .dft.upgrade
-	    $RM .dft.upgrade
-	    # set our version info properly
-	    default_change pwl_version $PWL_VER " "
-	    # now load new settings
-	    default_define
-	    # show message
-	    show_message "Configuration Reset" \
-	        "The configuration for $CFG_BASE has been converted to version $pwl_version. Please check settings"
-            $decho "Done converting...."
-	fi
-    fi	
-}	    
-#
-# default_read_function
-# 
-# This is a subfunction to parse data from the defaults file
-#
-function default_read_function () {
-    local IFS
-    IFS=""
-    read lineIn
-}
-#
-#=============================================================================
-#
 # show_defaults ( title,  pack.lst )
 #    Show the dialog list
 #
@@ -535,8 +421,16 @@ function build_defaults()
    #
    # process commands
    #
+   cp .dft.tmp .xx.dft.tmp
    #
-   while default_read_function ; do
+   while [ -s .dft.tmp ] ; do
+         #
+         # extract the next line and remove it from the defaults file
+         # (gwak is probably faster, but we've only got 10 or so items)
+         #
+         lineIn="`head -1 .dft.tmp`"
+         tail +2 .dft.tmp | cat > .xx
+         cp .xx .dft.tmp
          #
          # parse the line  format is:
          #  export [ parmName ] = [ parmValue ] # Prompt: [ promptValue ]
@@ -569,7 +463,7 @@ function build_defaults()
              echo -n  " '$parmName' '$promptValue: $parmValue' " >> $1
              #
          fi
-   done < .dft.tmp
+   done
    #
    $RM  .dft.tmp
    $decho "done build_defaults"
@@ -728,14 +622,10 @@ function default_main()
    #
    if [ $gotOne = "0" ] ; then
       #
-      usrMode="I"
       default_setup
-      default_define              # use current "temporary" defaults
-      default_version_check
-      if [ "$?" = "0" ]; then
-           menu_defaults
-      fi	   
-           default_define         # use changed "temporary" defaults
+      default_define         # use current "temporary" defaults
+      menu_defaults
+      default_define         # use changed "temporary" defaults
    fi
 }
 

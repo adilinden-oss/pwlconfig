@@ -142,6 +142,7 @@ if echo `pwd` | grep -q Embedded_Build$; then
         srcsize=`du -h $srcname | cut -f 1`
         binsize=`du -h $binname | cut -f 1`
         cfgsize=`du -h $cfgname | cut -f 1`
+        isosize=`du -h $isoname | cut -f 1`
         todaydate=`date +%Y-%m-%d`
         #
         # output lsm template
