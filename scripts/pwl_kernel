@@ -1,0 +1,412 @@
+#!/bin/bash
+#
+###
+# Usage: pwl_kernel [ cmd [ parmeters ] ... ]
+#
+#
+#   "cmd"    "parameters"      Results
+#   --help                     This help screen
+#   --project project Name     Select project (default is last one used)
+#   --init                     Initializes a new file from this Template
+#
+# Where:
+#    project Name is the name of a current PWL project
+#
+###
+#
+# History:
+#   v0.1 - created
+#
+# Comments:
+#
+######
+#pwl_kernel.README
+#
+#
+#END
+######
+#
+#=============================================================================
+#
+# include generally handy functions
+#
+if [ -f "./scripts/pwl_functions" ] ; then
+  . ./scripts/pwl_functions
+elif [ -f "./pwl_functions" ] ; then
+  . ./pwl_functions
+else
+  echo "script pwl_functions not found"
+fi
+#
+PWL_PWL_KERNEL_VER=${PWL_REL_VER}".1"
+#
+# the source base of the kernel relative to the extract dir
+#
+srcBase="/usr/src/linux"
+#
+# parse kernel script
+#
+. ./${RPW_DIR}${srcBase}/pwl_kernel_functions
+#
+#=============================================================================
+#
+# show_pwl_kernel ( select.lst ) - show checklist of items
+#
+function show_pwl_kernel()
+{
+   if [ -z "$pwl_kernelDefault" ] ; then
+      pwl_kernelDefault=Add
+   fi
+   echo -n $DIALOG --title "'Create Custom Kernel Menu'" \
+                   --backtitle "'$backtitle'"      \
+                   --menu                          \
+"'Select desired function                           Project: $CFG_BASE'" \
+              $ROWS $COLS $((ROWS-8))                                 \
+             "'$pwl_kernelDefault'" > .dialog
+
+   cat $1 >> .dialog
+   . ./.dialog
+}
+
+#
+# build_pwl_kernel - create dialog of operations and selectable items
+#
+function build_pwl_kernel ()
+{
+   $decho "start build_pwl_kernel"
+   #
+   # insert command operations in menu
+   #
+   echo -n "" > $1
+   echo -n " 'Sel'    'Select and extract kernel sources -->'  "        >> $1
+   echo -n " 'Con'    'Configure the kernel (make menuconfig) -->' "    >> $1
+   echo -n " 'skip'   '---   Select Optional Drivers   ---' "               >> $1
+   #
+   # create checkboxed list of available options
+   #
+   if [ -n "$ConfOptKernel" ]; then
+       #
+       # we have optional features for the kernel
+       #
+       for ConfOpt in $ConfOptKernel; do
+           #
+           # get the variable value
+           #
+           ConfOptVal=`eval echo $"${ConfOpt}"`
+           #
+           # get the description
+           #
+           ConfOptDesc=`eval echo $"Desc$ConfOpt"`
+	   #
+	   # get any nested options
+           #
+	   ConfOptNest=`eval echo $"Conf$ConfOpt"`
+           if [ -z "$ConfOptVal" ]; then
+               #
+               # undefined, not selected
+               #
+               echo -n " '$ConfOpt' '[ ] $ConfOptDesc' "      >>$1
+           else
+               #
+               # define, selected
+               #
+               echo -n " '$ConfOpt' '[*] $ConfOptDesc' "      >>$1
+               #
+               # build second level list
+               #
+               if [ -n "$ConfOptNest" ]; then
+	           #
+		   # we have a nested list
+		   #
+		   for NestConfOpt in $ConfOptNest; do
+		       #
+		       # get variable values
+		       #
+		       NestConfOptVal=`eval echo $"$NestConfOpt"`
+		       NestConfOptDesc=`eval echo $"Desc$NestConfOpt"`
+		       #
+		       if [ -z "$NestConfOptVal" ]; then
+		           #
+			   # undefined
+			   #
+			   echo -n " '$NestConfOpt' '    [ ] $NestConfOptDesc' " >>$1
+		       else
+		           #
+			   # defined
+			   #
+                	   echo -n " '$NestConfOpt' '    [*] $NestConfOptDesc' " >>$1
+		       fi
+		   done
+	       fi	   
+           fi
+       done
+   fi	   
+   #
+   echo -n " 'Skip'   '--- End Select Optional Drivers ---' "      >> $1
+   echo -n " 'Com'    'Compile the Kernel and Optional Drivers ' " >> $1
+   echo -n " 'Tar'    'Create Package (not rpm!) ' "               >> $1
+   $decho "end build_pwl_kernel"
+}
+
+#
+# pwl_kernel_init - Initialize project environment
+function pwl_kernel_init()
+{
+   $decho "start pwl_kernel_init $*"
+   #
+   # init stuff
+   #
+   pwl_init_project
+   default_define          # set global variables for project defaults
+   #
+   #
+   $decho "done pwl_kernel_init"
+}
+
+#=============================================================================
+#
+#  pwl_kernel_xxx functions go here !!
+#
+
+#
+# show_source_pwl_kernel - list available kernel sources
+#
+function show_source_pwl_kernel () {
+    $decho "start show sources"
+    #
+    # create LXDIALOG thingy
+    #
+    echo -n $DIALOG \
+        --title     "'Create Custom Kernel Menu'"                                \
+        --backtitle "'$backtitle'"                                               \
+	--menu                                                                   \
+	"'Select Kernel to Extract                          Project: $CFG_BASE'" \
+	$ROWS $COLS $((ROWS-8))                                                  \
+	"'Add'"      > .dialog
+    #
+    # list kernel source rpms
+    #
+    if [ `ls $PKG_RPMS_DIR/kernel-source*rpm | wc -l` = "0" ]; then
+        echo -n " 'skip'   'none found' " >> .dialog
+    else    
+        for keFn in $PKG_RPMS_DIR/kernel-source*rpm ; do
+            keBn=`basename $keFn`
+            echo -n " '$keFn'   '$keBn' " >> .dialog
+        done	
+    fi	
+    #
+    # send to screen
+    #
+    . ./.dialog
+    $decho "end show sources"
+}
+
+#
+# action_source_pwl_kernel - take action based on what's presented
+# 
+function action_source_pwl_kernel () {
+    $decho "start processing sources"
+    #
+    # process input
+    #
+    retVal=$?
+    read selection < .result
+    case "$retVal" in
+      1|2|255)                    # exit
+        ;;  
+      0|3|4|5|6)                  # do things
+        #
+        # process the selected source rpm
+	#
+	$decho "extracting $selection"
+	#
+	rpmOptions="--force  --noscripts --nodeps --notriggers \
+           --dbpath /.rpm_db  --ignorearch --ignoreos"
+	#   
+        # keep track of where we are
+	#
+	loc=$PWD
+	#
+	# cleanup the working directory
+	#
+        if [ -d $RPW_DIR ] ; then
+	    rm -rf $RPW_DIR
+	fi
+	#
+        mkdir -p $RPW_DIR/.rpm_db
+	#
+	# change work dir
+	#
+	cd $RPW_DIR
+	rootDir=$PWD
+	#
+	# install the rpm file
+	#
+	$RPM -i --root $rootDir $rpmOptions $selection
+	#
+	# return from where we came from
+	#
+	cd $loc
+    esac	
+    $decho "end processing sources"
+}    
+
+
+#
+#=============================================================================
+#
+#
+# menu_pwl_kernel - operate on ***
+#
+function menu_pwl_kernel()
+{
+   $decho "start menu_pwl_kernel"
+   pwl_kernelDone=0
+   #
+   while [ "$pwl_kernelDone" = "0" ]; do
+      #
+      #  build list ***
+      #
+      build_pwl_kernel .select.lst
+      #
+      show_pwl_kernel .select.lst 2>.result
+
+      retVal=$?
+      read selection <.result
+      pwl_kernelDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            pwl_kernelDone=1
+           ;;
+         2)                          # help
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_kernel.README
+            show_help pwl_kernel.README
+           ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           #
+           case "$selection" in
+             "Sel")  
+                xx=1
+		#
+		# select the kernel sources to extract
+		#
+		show_source_pwl_kernel 2>.result   # show sources
+                #
+		action_source_pwl_kernel           # process input
+                ;;
+	     "Con")
+	        #
+		# run make menuconfig
+		#
+		loc=$PWD
+		#
+		cd ${RPW_DIR}${srcBase}
+		#
+		make menuconfig
+		#
+		cd $loc
+		#
+		;;
+             "Total"|"Skip"|"skip")
+                xx=1 # do nothing
+                ;;
+             *)                      # list item selected
+                xx=1
+		#
+		# the selection variable contains the 
+		# variable name to toggle
+		#
+		# what is it now?
+		ConfOptVal=`eval echo $"${selection}"`
+		#
+		if [ -z "$ConfOptVal" ]; then
+		    # define it
+		    echo "$selection=y" > .toggle
+		else
+		    echo "$selection=" > .toggle
+		fi
+		#
+		# parse .toggle to get out new value
+		. ./.toggle
+		$RM .toggle
+		#
+                ;;
+           esac       # end select item
+           ;;
+       esac    # end dialog response
+
+   done    # end while configuring
+
+   #
+   # return clean
+   #
+   $RM .select.lst .result .dialog  .show_result pwl_kernel.README
+   $decho "end menu_pwl_kernel"
+   return 0
+}
+
+#=============================================================================
+#
+# main - parse command line
+#
+function pwl_kernel_main()
+{
+   progInfo="`basename $0` - Version $PWL_PWL_KERNEL_VER"
+   if [ "$backtitle" = "" ] ; then
+      backtitle=$progInfo
+   fi
+   pwl_kernel_init INIT_ONLY   # INIT_ONLY is a flag for pwl_kernel only- remove this!
+   #
+   # parse command line and execute commands or do interactive
+   #
+   gotOne=0
+   while [ "$1" != "" ] ; do
+      $decho "parse $*"
+      case "$1" in
+         "--help")                   #--help
+            usage
+            ;;
+         "--project")                #--project - assign current project
+            pwl_init_project $2
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         "--init")                   #--init
+            pwl_kernel_init $2
+            gotOne=1
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         *) usage "Invalid command $*"
+            ;;
+      esac
+      shift
+   done
+   #
+   # do interactive operation
+   #
+   if [ $gotOne = "0" ] ; then
+      #
+      usrMode="I"      # enable interactive mode
+      menu_pwl_kernel
+   fi
+}
+
+# start here
+  debug_mode 0        # set to 1 to enable debug macros
+
+  $decho "START $0"
+
+  pwl_kernel_main $*
+
+  $decho "END $0"
+
+  exit 0
+#
+# end
+#

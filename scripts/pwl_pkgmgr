@@ -41,16 +41,6 @@ fi
 #
 PWL_PWL_PKGMGR_VER=${PWL_REL_VER}".1"
 #
-PWL_RPM_TOP_DIR="$PWD/src"
-#
-PKG_RPMS_DIR="./src/RPMS/i386"
-PKG_SRPMS_DIR="./src/SRPMS"
-PKG_SRC_SPECS_DIR="src/SPECS"
-#
-# rpm macros file is kept here
-#
-PWL_RPMMACROS="$HOME/.rpmmacros"
-#
 #=============================================================================
 #
 # show_pwl_pkgmgr ( select.lst ) - show checklist of items
@@ -182,14 +172,17 @@ function pkgmgr_rpm_extract()
    #
    loc=$PWD         # remember where we started
    #
-   if [ ! -d $loc/rpm ] ; then
-      mkdir  $loc/rpm
-      mkdir  $loc/rpm/.rpm_db
-   else
-      rm -rf $loc/rpm/*  # cleanup from previous rpm files 
-                         # rpm database remains
+   # clean up from previous run                      
+   #
+   if [ -d $RPW_DIR ] ; then
+      rm -rf $RPW_DIR 
    fi
-   cd     $loc/rpm
+   #
+   # create our working dir
+   #
+   mkdir -p $RPW_DIR/.rpm_db
+   #
+   cd $RPW_DIR
    rootDir=$PWD
    #
    # Install the rpm file
@@ -209,10 +202,12 @@ function pkgmgr_rpm_extract()
    fi
    #
    tarFn="$PKG_DIR/$grpName/${pkgName}.tar"
-   mv "$loc/rpm/.${pkgName}.tar" $tarFn
+   mv "$RPW_DIR/.${pkgName}.tar" $tarFn
    #
    # cleanup
    # 
+   rm -rf $RPW_DIR
+   #
    $decho "pkgmgr_rpm_extract done"
    return 0
 }
@@ -368,9 +363,16 @@ function pkgmgr_add_all()
    echo "Reloading all packages from Binary RPMS"  
    #
    for rpmFile in `find ${PKG_RPMS_DIR}/ -name *.rpm` ; do
-      echo -n "Extracting $rpmFile."
-      pkgmgr_rpm_extract $PWD/$rpmFile $PKG_DIR > /dev/null 2> /dev/null
-      echo  ".."
+      #
+      # we do not want to extract kernel sources by default
+      #
+      if echo $rpmFile | grep -q "kernel-source" ; then
+          echo "Skipping $rpmFile..."
+      else
+          echo -n "Extracting $rpmFile."
+          pkgmgr_rpm_extract $PWD/$rpmFile $PKG_DIR > /dev/null 2> /dev/null
+          echo  ".."
+      fi	  
    done   
    #
    # built all list files for future reference

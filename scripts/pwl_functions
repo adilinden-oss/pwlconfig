@@ -17,6 +17,11 @@ basedir=`basename $PWD`
 if [ "$basedir" = "Embedded_Build" ] ; then
    baseprj="."
    basedir="./scripts"
+   baseabs="$PWD"
+elif [ "$basedir" = "scripts" ] ; then
+   baseprj="../"
+   basedir="."
+   baseabs=`pwd | sed "s/\(.*Embedded_Build\).*$/\1/"`
 else
     echo "+-----+-----+-----+-----+-----+-----+-----+-----+" >&2
     echo " The pwlconfig scripts must be executed from the " >&2
@@ -75,6 +80,13 @@ export SCR_DIR="$baseprj/scripts"     # pwlconfig scripts
 export SRC_DIR="$baseprj/src"         # rpm build tree
 export TMP_DIR="$baseprj/tmp"         # temporary files
 export RPW_DIR="$baseprj/rpm"         # rpm extract work directory
+# RPM related
+PWL_RPM_TOP_DIR="$baseabs/src"
+PKG_RPMS_DIR="$baseabs/src/RPMS/i386"
+PKG_SRPMS_DIR="$baseabs/src/SRPMS"
+PKG_SRC_SPECS_DIR="$baseabs/src/SPECS"
+PWL_RPMMACROS="$HOME/.rpmmacros"
+#
 #
 #  project specific directories
 #
