@@ -1,0 +1,26 @@
+#! /bin/bash
+
+# scripts/distribute
+#
+# Creates two tar archives containing binaries and sources.
+# Takes version number as commandline argument.
+
+usage () {
+    echo ""
+    echo "Usage:   distribute [version]"
+    echo "Example: distribute 0.15"
+    echo ""
+    exit 0
+}
+
+# Test for version
+[ -z $1 ] && usage
+
+cd ../../
+tar czpf embedded-${1}-src.tar.gz Embedded_Build
+
+tar czpf embedded-${1}-bin.tar.gz Embedded_Build \
+    --exclude extracted_src \
+    --exclude sources 
+
+exit 0

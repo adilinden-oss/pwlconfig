@@ -1,0 +1,631 @@
+===================
+What is pwlconfig ?
+===================
+
+Pee Wee Linux's "pwlconfig" is a menu driven, embedded Linux
+development tool.
+
+With pwlconfig you can build customized "projects" that fully
+define a bootable Linux file system, suitable for embedding in
+your favorite target hardware.
+
+Pwlconfig removes the manual "artistic" effort for building an
+embedded Linux system.  If you have all the individual pieces of
+a product working (and maybe even backed up) putting them all
+together *again* can be a slow, error-prone job.
+
+By coordinating all of these pieces in one environment, backing up,
+rebuilding and customizing your product becomes a snap!
+
+==========================
+pwlconfig Quick Reference
+==========================
+
+The best way to learn pwlconfig is to get your hands on it and build
+a simple product.  Just follow these few steps to build a bootable
+floppy.
+
+Go to the Embedded_Build directory and type:
+./pwlconfig
+
+You will be prompted for a project name, type:
+
+simple
+
+## to do: choose default project type "boot only"
+
+The main menu displayed lets you create your own file system based on
+Pee Wee Linux packages and your own custom files.  So, from here,
+select "Configure Project File System.
+
+This menu displays the packages and package categories provided with
+Pee Wee Linux. Choose the first package to configure that one. Cursor
+down to boot_system and press Enter.
+
+The "Configure Packages Menu" displayed lists all the files
+contained within this package.  Cursor to any file and 'select' it
+to exclude or include it as part of your file system.
+
+## to do: more configuration for simple system
+
+Now press ESC a couple of times until the main menu is displayed.
+Highlight "Extract File System from Project" and press ENTER.
+Accept the defaults, this will extract all files into a mount point
+within your "simple" project.
+
+==========================
+How to work with pwlconfig
+==========================
+
+Pwlconfig provides several operations for embedding Pee Wee Linux:
+
+1. Command line options
+1. Managing Projects
+2. Configuring File Systems
+3. Building File Systems
+4. Loading File Systems
+5. *Creating packages
+
+Command Line Options
+---------------------
+
+##All operations of pwlconfig can be executed directly from
+##the command line.
+
+The following arguments are available from the command line
+invocation of pwlconfig:
+
+   -c   --copy <source_files> <file_system>
+     First the files located at "file_system" are deleted.  Then
+     the files from the "source_files" location are copied to
+     the "file_system" directory.
+
+     When a project name is not specified, the default is to use
+     the last project that was selected.
+
+     If no parameters are specified, the "file_system" is the
+     directory where the target device is mounted and the
+     "source_files" are the extracted files from the current project.
+
+     Use the copy command to copy an extracted file system directly
+     to any location you desire.
+
+   -e  --extract
+     Extracts the files configured for a project into a single
+     file system.
+
+     When a project name is not specified, the default is to use
+     the last project that was selected.
+
+     If no source_file location is specified, the sources will be
+     extracted into the project at the project mount point.
+
+     Use the extract command to read the last saved configuration
+     and build the file system for a project.
+
+   -n  --new
+     Creates a new project.
+
+     If a new project name is not specified, you will be prompted
+     for the name of the project.
+
+   -u  --update
+     Updates the project configuration to match the source files.
+
+     When a project name is not specified, the default is to use
+     the last project that was selected.
+
+
+Use "pwlconfig --help" to see the latest command line options.
+
+
+
+Managing projects
+------------------
+
+The first time you run pwlconfig, you are prompted for the name of
+the project you wish to create.  Enter a name that describes your
+project. For example, if you need to build several thin clients you
+may have projects named as:
+
+tc_browser
+tc_ica
+tc_java
+tc_ica_browser
+tc_term_5270
+
+When a project is newly created, all the files in all the default
+packages are included.  These should be most of the files required
+to boot your system to a login prompt.  Try it and see!
+
+To work with your projects,  choose "Select A Project" from the
+main menu.  By default, the last project you were working on is
+the project selected when you start pwlconfig.
+
+At any time, you can copy a project to another project, create a
+new project or remove an existing project.  The "Copy..' and
+"Remove.." options operate on the current project.
+
+To select from an existing project, just highlight the desired
+project name and "select" it.  This will be your default project
+until you choose another one.
+
+
+Configuring File Systems
+------------------------
+
+Once you have selected a project, your job is to configure the file
+system to be installed on this product.  The basic file system can
+be created by simply selecting those packages that you need.  By
+selecting a package, you will get all the files contained within
+the package.
+
+To further optimize your file system, you can select individual
+files within each package.  The size of each file within a package
+is listed beside the file name.  As you include and exclude files, a
+total package size is maintained.
+
+The "Configure Custom Files..." menu allows you to specify
+individual files that you need to include as part of your file
+system.  Any unique drivers, modules, or scripts that are specific
+to your target hardware or environment may be copied to your
+project.
+
+Custom files added to your project may then be included or excluded
+from your final configuration.
+
+
+Saving your Configuration
+-------------------------
+
+To save all your configuration changes, select "Save Project" from
+the main menu.  You will be prompted to save the project before
+you build a file system or exit pwlconfig.
+
+If you exit pwlconfig without saving, do not worry! When you start
+plwconfig, you will be notified that a previous configuration was
+detected.
+
+Select 'Yes' to continue using the "temporary" configuration.
+
+Select 'No' to start pwlconfig with the last configuration you
+saved.
+
+
+Building your File System
+-------------------------
+
+Once you have created a project and configured your file system,
+you are ready to build your file system.  From the main menu,
+select "Build File System for Project".
+
+Only the files you have specified will be copied to your new file
+system.  By default, the file system is created at a mount point
+within the current project (thus, you can keep several file systems
+"on-line" at once).
+
+You can also specify a mount point and have your file system
+extracted to any mount point location you desire.
+
+All the files you selected for each package will be extracted, then
+all the custom files you added are copied to the mount point.
+
+
+
+Loading your File System
+------------------------
+
+Now that you have built the file system according to your
+configuration, you must install it on the 'boot device'.  File
+systems can be installed on any of the following devices:
+
+1. Disk-On-Chip
+2. *Floppy Disk
+3. *CD ROM
+
+- Creating Disk-On-Chip File System
+
+To prepare your Disk-On-Chip, you first need to manually partition
+and format the device.  Read the documentation provided by M-Systems
+to see a detailed description of how to do this.
+
+The steps required include:
+1. Remove Disk-On-Chip firmware (so the BIOS doesn't see the chip)
+2. Compile the kernel with support for the Disk-On-Chip
+3. Create device nodes (fla, fla1, fla2...)
+4. Format the device (fdisk or similiar)
+
+Once your Disk-On-Chip is visible (ie, can be mounted), all further
+testing and updating can be done using pwlconfig. Select "Erase
+Disk-On-Chip" from the main menu to erase the device.
+
+Next, choose "Load File System" to copy the file system you created
+on to the Disk-On-Chip.
+
+Finally, to allow your Disk-On-Chip to boot, select "Install
+LInux LOader (Lilo)..".  The Master boot record of the device will
+be written and the chip should now boot.
+
+Make sure you have disabled any hard drives attached (probably a
+BIOS configuration ).
+
+Creating Pwlconfig Packages
+---------------------------
+
+*not started*
+
+The packages provided as part of Pee Wee Linux are optimized binaries,
+suitable for embedding.
+
+These have been compiled to remove extra
+debugging information or extra library dependencies.
+
+<package magic description>
+
+
+
+============
+Help Screens
+============
+
+The following are context sensitive help screens (delimited by "help_name"
+and END).
+
+menu_main Main Menu
+
+The Pwlconfig script is based on the same user interface provided
+by the kernel configuration utility Menuconfig.  If you have used
+that program, then you already know how to use pwlconfig.
+
+(This is a limited copy of README.Menuconfig. Please see that file
+for a full desciption and references to people who did this work)
+
+Menus
+----------
+o  Use the Up/Down arrow keys (cursor keys) to highlight the item
+   you wish to change or submenu wish to select and press <Enter>.
+   Submenus are designated by "--->".
+
+   Shortcut: Press the option's highlighted letter (hotkey).
+             Pressing a hotkey more than once will sequence
+             through all visible items which use that hotkey.
+
+   You may also use the <PAGE UP> and <PAGE DOWN> keys to scroll
+   unseen options into view.
+
+o  To exit a menu use the cursor keys to highlight the <Exit> button
+   and press <ENTER>.
+
+   Shortcut: Press <ESC><ESC> or <E> or <X> if there is no hotkey
+             using those letters.  You may press a single <ESC>, but
+             there is a delayed response which you may find annoying.
+
+   Also, the <TAB> and cursor keys will cycle between <Select>,
+   <Exit> and <Help>
+
+o  To get help with an item, use the cursor keys to highlight <Help>
+   and Press <ENTER>.
+
+   Shortcut: Press <H> or <?>.
+
+o  Use the cursor keys to select the option you wish to set and press
+   <S> or the <SPACE BAR>.
+
+   Shortcut: Press the first letter of the option you wish to set then
+             press <S> or <SPACE BAR>.
+
+Data Entry
+-----------
+o  Enter the requested information and press <ENTER>
+
+o  For help, use the <TAB> or cursor keys to highlight the help option
+   and press <ENTER>.  You can try <TAB><H> as well.
+
+o  To exit and ignore all input, press <ESC>.
+
+Text Box    (Help Window)
+--------
+o  Use the cursor keys to scroll up/down/left/right.  The VI editor
+   keys h,j,k,l function here as do <SPACE BAR> and <B> for those
+   who are familiar with less and lynx.
+
+o  Press <E>, <X>, <Enter> or <Esc><Esc> to exit.
+
+Other information
+-----------------
+The windowing utility, lxdialog, will only be rebuilt if your kernel
+source tree is fresh, or changes are patched into it via a kernel
+patch or you do 'make mrproper'.  If changes to lxdialog are patched
+in, most likely the rebuild time will be short.  You may force a
+complete rebuild of lxdialog by changing to it's directory and doing
+'make clean all'
+
+If you use Menuconfig in an XTERM window make sure you have your
+$TERM variable set to point to a xterm definition which supports color.
+Otherwise, Menuconfig will look rather bad.  Menuconfig will not
+display correctly in a RXVT window because rxvt displays only one
+intensity of color, bright.
+
+Menuconfig will display larger menus on screens or xterms which are
+set to display more than the standard 25 row by 80 column geometry.
+In order for this to work, the "stty size" command must be able to
+display the screen's current row and column geometry.  I STRONGLY
+RECOMMEND that you make sure you do NOT have the shell variables
+LINES and COLUMNS exported into your environment.  Some distributions
+export those variables via /etc/profile.  Some ncurses programs can
+become confused when those variables (LINES & COLUMNS) don't reflect
+the true screen size.
+
+
+NOTICE:  lxdialog requires the ncurses libraries to compile.  If you
+         don't already have ncurses you really should get it.
+
+         The makefile for lxdialog attempts to find your ncurses
+         header file.  Although it should find the header for older
+         versions of ncurses, it is probably a good idea to get the
+         latest ncurses anyway.
+
+         If you have upgraded your ncurses libraries, MAKE SURE you
+         remove the old ncurses header files.  If you don't you
+         will most certainly get a segmentation fault.
+
+WARNING: It is not recommended that you change any defines in
+         lxdialog's header files.  If you have a grayscale display and
+         are brave, you may tinker with color.h to tune the colors to
+         your preference.
+
+COMPATIBILITY ISSUE:
+         There have been some compatibility problems reported with
+         older versions of bash and sed.  I am trying to work these
+         out but it is preferable that you upgrade those utilities.
+
+Propaganda
+----------
+The windowing support utility (lxdialog) is a VERY modified version of
+the dialog utility by Savio Lam <lam836@cs.cuhk.hk>.  Although lxdialog
+is significantly different from dialog, I have left Savio's copyrights
+intact.  Please DO NOT contact Savio with questions about lxdialog.
+He will not be able to assist.
+
+William Roadcap was the original author of Menuconfig.
+Michael Elizabeth Chastain <mec@shout.net> is the current maintainer.
+
+END
+
+menu_project Manage Projects
+
+Managing projects is central to Pee Wee Linux and allows you to quickly
+create, copy and update your projects.
+
+From this menu, you will see several commands, along with a list
+of all the projects you have created.  Simply cursor to the
+project you want to manage and "select" it.  This will become your
+"current project", which can then be configured.
+
+The Copy, Remove and Update commands operate on the current project.
+
+
+"Create a New Project"
+
+   Selecting this option will prompt you for the name of your new
+   project.
+
+   ## to do: select project defaults and parameters
+
+"Copy <project> to New Project"
+
+   Use this if you have a product to build that is "almost" exactly
+   like another product, you can duplicate a project and then make
+   changes to the new project.
+
+   The project that is duplicated is the current project.  Make sure
+   you have selected the project that you want to duplicate.
+
+   Selecting the "Copy..." option will prompt you for a new project
+   name.  Enter the name and it will be an exact copy of the
+   current project.  When the "Manage Projects" menu appears, you
+   will now see that your newly created project is the current project.
+
+"Remove Project <project>"
+
+   This removes all aspects of the currently selected project.
+   All custom files and configurations are deleted.
+
+   You will be prompted to make sure you really want to remove the
+   project. !! This can not be undone!!!
+
+   Once the current project is removed, you must select another
+   project as the current project.
+
+"Update <project> from file system"
+
+   This option lets you configure your project based on an existing
+   file system.
+
+   If you build a file system (with or without Pee Wee Linux), you
+   will then begin booting and testing your file system.  Since
+   everything may not be "exactly" as you need it, you tweak the
+   configurations and copy a few files that are required.
+
+   Now, everything is working great.  Select "Update..." option and
+   any files that don't match your project configuration are
+   copied to your system.
+
+   The file system is examined and compared with your configuration.
+   Before any changes are made, you will be prompted to confirm
+   that you really want to make the change.
+
+   Here's what will happen...
+   - If you change one of your custom files, you will be prompted
+     to replace the "older" file in your project with the one from
+     the file system.
+
+   - If you changed one of the "packaged" files, that file will
+     be added to your custom files and excluded from the package
+     configuration list.
+
+   - If you add or create a new file not found in your configuration
+     this file will be copied as one of your custom files.
+
+## - If you add or create a new file that matches a file found in
+##   one of the packages, the configuration for that package will
+##   be update to include this file.
+
+END
+
+menu_package Configure Project File System
+
+This is the heart of the Pee Wee Linux configuration.  The file
+system you build is defined here by selecting packages and
+files within those packages that are to be included when your
+file system is built.
+
+The packages have been categorized to help you quickly locate
+those packages that you need.  A package category is listed as:
+a category name followed by "--->"  For example:
+
+   boot_system --->
+
+Highlight the category that you want to configure and select
+that item.  You will be presented with a list of all the packages
+contained within that category.
+
+A package file appears as:
+
+  [ ] _base_filesystem
+
+which can be marked as "included" by pressing the SPACE BAR:
+
+  [*] _base_filesystem
+
+If you highlight an package and press ENTER, you will go to
+the "Configure Files Menu".  This will show you all the individual
+files contained within that package.
+
+Configure Custom files for <project>
+
+  This command option lets you add, delete or individually select
+  "custom" files for your file system.
+
+  Custom files are those files that are hardware specific or
+  Environment specific or something you prefer over files found
+  in the Pee Wee Linux packages.  Whatever your reason, you
+  simply choose this option to work with your own "custom" files.
+
+Include All Packages
+Exclude All Packages
+  Selecting these commands will include or exclude every package
+  in the current package category.  This might be handy if you
+  want "all but one" of the packages...select Include all and
+  then highlight the few packages you don't need.
+
+END
+
+menu_pkg_list Configure Files Menu
+
+The Configure Files Menu shows you a list of files contained
+within a package.
+
+The files list shows the include files as:
+
+   [*] package_file_name  < size in bytes >
+
+or
+   [ ] package_file_name  < size in bytes >
+
+Just like the package menu, highlighting and selecting a file
+toggles the include / exclude asteric.
+
+The file size is shown to help you decide if you want to include
+a specific file.  All selected file sizes are totaled at the bottom
+of the files menu:
+
+   Estimated Total for selected files: <total size in bytes>
+
+
+The commands available from the Configure Files Menu are:
+
+Include All Files from <package name>
+Exclude All Files from <package name>
+
+    Includes or excludes all files contained in this package.
+    Handy if you want "almost every file" or "almost none of them".
+
+END
+
+menu_custom Configure Custom Files
+
+Custom files are added to your file system to support your unique
+hardware or environment.
+
+For example, if you have a network device that must be included as
+a module, just "Add" the device driver module file to your Custom Files.
+
+When you add a custom file, you specify a source and destination.
+If the source file gets updated, you will be prompted to upgrade
+the destination file in your project.
+
+If the source file gets deleted, you still have a copy of it in
+your project.
+
+    Shortcut:  Press 'Esc' at any prompt to return to the
+               "Configure Custom Files menu with no changes"
+
+    Shortcut:  You can enter a directory name and every file
+               in that directory will be added as a custom file
+
+"Add custom files to ..."
+
+    First you will be prompted to specify the "entire" path and name
+    of the custom file to add to your file system:
+
+       /home/joe_user/network/br549.o
+
+    If this 'source' file is found, you will be prompted to specify
+    the 'destination' file. Again, enter the "entire" path and name of
+    the final location for the file (where it will appear in the final
+    file system).  This path must start with '/', the root of the file
+    system being built:
+
+       /lib/modules/2.2-12-20/net/br549-v3.o
+
+    If this file alread exists in your project you will be prompted
+    to overwrite it.  If you overwrite it, the source will be the new
+    source path and name you just entered.
+
+"Delete custom files from ..."
+
+    If you no longer need a custom file, you can delete it from your
+    project.  Enter the name of the file you want to delete as it
+    appears in your project:
+
+       /lib/modules/2.2.12-20/net/br549-v3.o
+
+    You will be prompted if you really really want to delete this.
+
+    If you specify a directory, that directory and all files contained
+    within it will be deleted.
+
+    Deleting a custom file will not touch the source file.
+
+    Shortcut:  If you 'select' a custom file from the menu, then
+               choose 'Delete',the custom file name is displayed
+               by default, saving you all that typing.
+
+
+"Include all custom files"
+"Exclude all custom files"
+
+     Select these menu items to globally enable or disable all
+     custom files added to your project.
+
+     Once included or excluded, you can toggle each individual
+     file to further optimize your file system configuration.
+
+END
+
+
+<END OF FILE>
+
+
+

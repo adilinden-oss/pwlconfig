@@ -1,0 +1,32 @@
+#! /bin/bash
+
+# scripts/package
+#
+# Creates the packagename.tar and packagename.list files from
+# files and directories located in mnt.
+
+usage () {
+    echo ""
+    echo "Usage: package [name]"
+    echo ""
+ 
+    exit 0
+}
+
+# Test for name
+[ -z $1 ] && usage
+
+# Test to insure we're in the right directory
+if ! `pwd | grep -q Embedded_Build/mnt$`; then
+    echo ""
+    echo "This needs to be run in the"
+    echo "../Embedded_Build/mnt dirctory!"
+    echo ""
+ 
+    exit 0
+fi
+
+# Created the .tar and .list files
+tar cvpf ../packages/${1}.tar * > ../packages/${1}.list
+
+exit 0
