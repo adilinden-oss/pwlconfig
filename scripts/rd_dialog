@@ -33,7 +33,6 @@ fi
 
 # set the location of the rd_ scripts
 rd_scripts=$rd_base/scripts
-#rd_scripts=$rd_base/misc   
 
 # source functions
 . /$rd_scripts/pwl_target_functions

@@ -9,19 +9,26 @@ WHOAMI=whoami
 # include from "scripts directory or "Embedded_Build directory
 #
 PROGRAM_NAME=`basename $0`
+#
+# make sure we're executed from Embedded_Build
+#
 basedir=`basename $PWD`
 #
 if [ "$basedir" = "Embedded_Build" ] ; then
-   basedir="./scripts"
    baseprj="."
+   basedir="./scripts"
 else
-   basedir="."    # we must be in the scripts executed as . ?
-   baseprj=".."
+    echo "+-----+-----+-----+-----+-----+-----+-----+-----+" >&2
+    echo " The pwlconfig scripts must be executed from the " >&2
+    echo " Embedded_Build directory....                    " >&2
+    echo "+-----+-----+-----+-----+-----+-----+-----+-----+" >&2
+    # end this right now!
+    exit 1 
 fi
 #
 # Version is set in CHANGES.pwlconfig
 #
-. ./$basedir/CHANGES.pwlconfig
+. $basedir/CHANGES.pwlconfig
 #
 PWL_REL_VER=$PWL_VER      # for backward compatability
 #
@@ -58,15 +65,16 @@ TAR=tar
 #
 # PWL - Directories (based from installed directory)
 #
-export BKS_DIR="$baseprj/backups"
-export EXA_DIR="$baseprj/examples"
-export BIN_DIR="$baseprj/bin"
-export MNT_DIR="$baseprj/mnt"
-export PKG_DIR="$baseprj/packages"
-export PRJ_DIR="$baseprj/projects"
-export SCR_DIR="$baseprj/scripts"
-export SRC_DIR="$baseprj/src"
-export TMP_DIR="$baseprj/tmp"
+export BKS_DIR="$baseprj/backups"     # projects backups
+export EXA_DIR="$baseprj/examples"    # example projects
+export BIN_DIR="$baseprj/bin"         # binaries needed by pwlconfig
+export MNT_DIR="$baseprj/mnt"         # device mount location
+export PKG_DIR="$baseprj/packages"    # contains tar packages
+export PRJ_DIR="$baseprj/projects"    # contains project configurations
+export SCR_DIR="$baseprj/scripts"     # pwlconfig scripts
+export SRC_DIR="$baseprj/src"         # rpm build tree
+export TMP_DIR="$baseprj/tmp"         # temporary files
+export RPW_DIR="$baseprj/rpm"         # rpm extract work directory
 #
 #  project specific directories
 #
@@ -75,7 +83,7 @@ export PRJ_MNT="mnt"
 #
 # PWL System Files used in all projects
 #
-HELP_FILE=./$basedir/README.pwlconfig
+HELP_FILE=$basedir/README.pwlconfig
 PRJ_LAST=$PRJ_DIR/.last.project
 CUSTOM_LST=custom.list
 CUSTOM_SRC=custom.src

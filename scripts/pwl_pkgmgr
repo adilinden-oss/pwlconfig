@@ -86,30 +86,32 @@ function build_pwl_pkgmgr ()
    echo -n " 'AddAll'  'Extract ALL binary RPM files'     "   >> $1
    echo -n " 'DirB'    'Location of RPMS:$PKG_RPMS_DIR '   "  >> $1
    echo -n " 'Clean'   'Delete all packages'               "  >> $1
-   echo -n " 'skip'    '------' "                             >> $1
-   echo -n " 'Make'    'Compile source to binary RPM '"       >> $1 
-   echo -n " 'MakeAll' 'Compile ALL sources to binary RPMs'"  >> $1 
-   echo -n " 'DirS'    'Location of SRPMS:$PKG_SRPMS_DIR '"   >> $1
-   echo -n " 'DirTop'  'Root for all RPM operations'      "   >> $1
-   echo -n " 'skip2'   '------' "                             >> $1
-   echo -n " 'Del'     'Delete a Package'                 "   >> $1
-   #
-   if [ ! -z "$2" -a "$2" != "." ] ; then
-      # allow jump back to root directory - fake traversal
-      echo -n " '.'     '..'     "           >> $1
+   if [ "$pwlExp" = "true" ]; then
+       echo -n " 'skip'    '------' "                             >> $1
+       echo -n " 'Make'    'Compile source to binary RPM (experiemntal) '"       >> $1 
+       echo -n " 'MakeAll' 'Compile ALL sources to binary RPMs (experiemntal) '"  >> $1 
+       echo -n " 'DirS'    'Location of SRPMS:$PKG_SRPMS_DIR (experiemntal) '"   >> $1
+       echo -n " 'DirTop'  'Root for all RPM operations (experiemntal) '      "   >> $1
+       echo -n " 'skip2'   '------' "                             >> $1
+       echo -n " 'Del'     'Delete a Package (experiemntal) '                 "   >> $1
+       #
+       if [ ! -z "$2" -a "$2" != "." ] ; then
+          # allow jump back to root directory - fake traversal
+          echo -n " '.'     '..'     "           >> $1
+       fi
+       #
+       #
+       # list all package file categories and files found
+       #
+       for prjName in `find $PKG_DIR/$2/* -maxdepth 1 -type d | sort; find $PKG_DIR/$2 -maxdepth 1 -name *.tar | sort` 
+       do
+          #
+          if [ ! -z "$prjName" ] ; then
+                prjFn=`basename $prjName`
+                echo -n " '$prjFn' '$prjFn' " >> $1
+          fi
+       done
    fi
-   #
-   #
-   # list all package file categories and files found
-   #
-   for prjName in `find $PKG_DIR/$2/* -maxdepth 1 -type d | sort; find $PKG_DIR/$2 -maxdepth 1 -name *.tar | sort` 
-   do
-      #
-      if [ ! -z "$prjName" ] ; then
-            prjFn=`basename $prjName`
-            echo -n " '$prjFn' '$prjFn' " >> $1
-      fi
-   done
    #
    $decho "end build_pwl_pkgmgr"
 }
@@ -173,14 +175,11 @@ function pkgmgr_rpm_extract()
    pkgSize=`$RPM -q --queryformat %{SIZE}  -p $srcName`
    #
    # let's keep track of kernel versions!
+   #
    if echo "$pkgName" | grep -q "^kernel-"; then
        pkgName="${pkgName}-${pkgVers}"
    fi
    #
-   #if [ "$pkgSize" = "0" ] ; then
-   #   echo "Package size is zero, nothing done - bad package ??"
-   #   return 1
-   #fi
    loc=$PWD         # remember where we started
    #
    if [ ! -d $loc/rpm ] ; then
@@ -196,10 +195,6 @@ function pkgmgr_rpm_extract()
    # Install the rpm file
    #
    $RPM -i --root $rootDir $rpmOptions $srcName
-   #
-   # remove the trash created by rpm
-   #
-   # DONT rm -rf .rpmtmp
    #
    # build one tar file of all extracted files
    #

@@ -97,13 +97,13 @@ function build_pwl_envsel ()
    echo -n " 'ro_root_rd'     '$ro_root_rd_desc' " >> $1
    echo -n " 'skip'           ' ----- Non-flash target devices -----' " >> $1
    echo -n " 'fd_raw' '$fd_raw_desc' " >> $1
-   echo -n " 'skip'           ' --+--+--+--+--+--+---+--+--+--+--+--' " >> $1
-   echo -n " 'skip'           ' - Under development target devices -' " >> $1
-   echo -n " 'fd_cd'  '$fd_cd_desc' " >> $1
-   echo -n " 'iso_rd' '$iso_rd_desc' " >> $1
-   echo -n " 'iso_ro' '$iso_ro_desc' " >> $1
-   echo -n " 'skip' ' ----- For testing only!  -----' " >> $1
-   echo -n " 'rw_root' '$rw_root_desc' " >> $1 
+   if [ "$pwlExp" = "true" ]; then
+       echo -n " 'fd_cd'  '$fd_cd_desc (experimental)' " >> $1
+       echo -n " 'iso_rd' '$iso_rd_desc (experimental)' " >> $1
+       echo -n " 'iso_ro' '$iso_ro_desc (experimental)' " >> $1
+       echo -n " 'skip' ' ----- For testing only!  -----' " >> $1
+       echo -n " 'rw_root' '$rw_root_desc (experimental)' " >> $1 
+   fi
    #
    $decho "end build_pwl_envsel"
 }

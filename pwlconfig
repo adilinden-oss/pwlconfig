@@ -7,14 +7,9 @@
 #    embedded targets. Use from command line or interactively.
 #
 # Options:
-#  -e, --extract [source_dir]
-#                     extract files to source dir from project configuration
-#  -l, --load [source_dir [ device_mount_point ]]
-#                     load extracted project source image to device
-#  -n, --new new_project_name
-#                     create a new Pee Wee Linux project
-#      --help         dislay this help and exit
-#      --version      output version information and exit
+#      -b, --experimental   turn on experimental features
+#      -h, --help           dislay this help and exit
+#      -v, --version        output version information and exit
 #
 # Where:
 #    project_name     defaults to last project used
@@ -74,6 +69,17 @@
 #
 #
 export usrMode="I"
+#
+# make sure we're executed from Embedded_Build
+#
+if [ `basename $PWD` != "Embedded_Build" ] ; then
+    echo "+-----+-----+-----+-----+-----+-----+-----+-----+" >&2
+    echo " The pwlconfig scripts must be executed from the " >&2
+    echo " Embedded_Build directory....                    " >&2
+    echo "+-----+-----+-----+-----+-----+-----+-----+-----+" >&2
+    # end this right now!
+    exit 1
+fi
 #
 # include utility functions
 #
@@ -143,16 +149,20 @@ function build_main()
        $decho "Reset configuration..."
    fi
 
-   echo -n "'PkgConfig' 'Configure Project File System -->'             \
-            'Update'    'Create or Update \"$CFG_BASE\" from File System --> ' \
-            'Extract'   'Extract File System for Project'               \
-            'skip'      '----'                                          \
-            'Target'    'Configure Target Hardware -->'        \
-            'Load'      'Load File System onto Target $deviceName'      \
-            'skip'      '----'                                          \
-            'PrjManage' 'Manage Projects -->'                           \
-            'PkgManage' 'Manage Package Files -->'                      \
-            'Save'      'Save Project'                                 "> $1
+   echo -n "" >$1
+
+   echo -n " 'PkgConfig' 'Configure Project File System -->' "         >>$1 
+   if [ "$pwlExp" = "true" ]; then
+       echo -n " 'Update'    'Create or Update \"$CFG_BASE\" from File System (experimental) --> ' " >>$1
+   fi
+   echo -n " 'Extract'   'Extract File System for Project' "           >>$1
+   echo -n " 'skip'      '----' " >>$1
+   echo -n " 'Target'    'Configure Target Hardware -->'  "            >>$1
+   echo -n " 'Load'      'Load File System onto Target $deviceName' "  >>$1
+   echo -n " 'skip'      '----'   "                                    >>$1
+   echo -n " 'PrjManage' 'Manage Projects -->' "                       >>$1
+   echo -n " 'PkgManage' 'Manage Package Files -->' "                  >>$1
+   echo -n " 'Save'      'Save Project' "                              >>$1
    #
    $decho "end build_main"
 }
@@ -565,43 +575,12 @@ function cmd_parse_commands ()
       "--clean")               # erase all temp package stuff non-menu command
          $PWL_CLEAN
          ;;
+
       "--clean-factory")
          $PWL_CLEAN --factory
          ;;
-      "--update")              #
-         ;;
-      "--extract")            # extract project files (allow copy parm)
-          main_init
-          usrMode="C"
-          #
-          mntPt=$PWL_PRJ/$prjMnt
-          if [ ! "$1" = "-c" -a ! -z "$1" ] ; then     #optional mount point specified
-             mntPt=$1
-             shift
-          fi
-          extract_project "$mntPt"
-          #
-          exit 0
-          ;;
-      "--load")               # copy files from project to mount point
-          main_init
-          usrMode="C"
-          #
-          deviceMntName="$deviceMnt"               # default destination
-          sourceMnt="$PWL_PRJ/$prjMnt"
-          if [ ! -z "$1" ] ; then
-              sourceMNT=$1              # source mount specified
-              shift
-              if [ ! -z "$2" ] ; then
-                 deviceMntName=$2           # destination mount specified
-                 shift
-              fi
-          fi
-          device_load_fs $sourceMnt $deviceMntName
-          exit 0                   # no more parameters allowed
-          ;;
 
-      "-debug")                        # undocumented feature!;-)
+      "--debug")                        # undocumented feature!;-)
           if [ $debugMode = "0" ] ; then
              debug_mode  1
           else
@@ -609,24 +588,27 @@ function cmd_parse_commands ()
           fi
           ;;
 
-      "--new")                # not a menu item, but makes sense to add here ?
-          usrMode="C"
-          $PWL_PROJECTS --init $2
-          exit 0
-          ;;
-
-      "--help")
+      "--help"|"-h")                    # display help
           usage
           exit 0
           ;;
 
-      "--version")
+      "--version"|"-v")                 # display version
           echo "`basename $0` (Pee Wee Linux Configuration utility) Version $PWL_VER"
           exit 0
           ;;
 
+      "--experimental"|"-b")            # brave mode, turn on experimental 
+          #
+          # display disclaimer
+          show_message "Experimental Mode: On" \
+              "You have choosen to turn on 'experimental' or 'brave' mode. Menu options marked experimental might behaviour different as expected or won't work at all. Use at your own risk!" "9"
+          #
+          # simply export a variable to show we want it all
+          export pwlExp="true"
+          ;;
       *)
-          usage "$cmd:  not a valid project name or pwlconfig option"
+          usage "$cmd:  not a valid pwlconfig option"
           exit 0
           ;;
 

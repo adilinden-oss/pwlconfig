@@ -130,7 +130,9 @@ function build_pwl_pkgconf ()
    #
    echo -n " 'Unique' 'Configure Custom files for \"$CFG_BASE\" -->' " > $1
    echo -n " 'Search' 'Search available Packages -->' " >> $1
-   echo -n " 'Depend' 'Check configuration dependencies -->' " >> $1
+   if [ "$pwlExp" = "true" ]; then
+       echo -n " 'Depend' 'Check configuration dependencies (experimental) -->' " >> $1
+   fi
    echo -n " 'Skip'   '----' " >> $1
    #
    # list all subdirectories files found in packages directory
