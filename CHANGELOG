@@ -1,0 +1,304 @@
+
+v0.53.24 -- December 17, 2000
+-----------------------------
+ o Fixed bugs and added features in pwlonfig scripts as outline
+   in scripts/CHANGES.pwlconfig
+
+v0.53.23 -- December 12, 2000
+-----------------------------
+ o Added bin/ldlinux.sys for pwl_target_load to function properly
+ o Upgraded thttpd-2.15 to thttpd-2.20b, solves problems with cgi
+ o Added zebra routing daemon
+
+v0.53.22 -- December 7, 2000
+----------------------------
+ o Updated wireless-isa example
+ o Fixed bug in pwl_defaults as outlined in CHANGES.pwlconfig
+
+v0.53.21 -- December 1, 2000
+----------------------------
+ o Compile syslinux for glibc
+ o Changes to pwlconfig outlined in scripts/CHANGES.pwlconfig
+ o Changed kernel package
+   - added functions for pwl_kernel
+   - changed netdrivers to an optional package
+ o Added cd_install script
+ o Added emlog.o kernel module for endless logging
+ o Added wget package
+ o Combined dev packages into one with less devices
+ o Added libpanel.so.4 to libncurses
+ o Updated iniscripts
+ o Added wireless-isa and minimal example projects
+ o Added portfw daemon
+ o Added boot.silent option to initscripts
+   - Note: To silence the boot scripts create the 
+     '/etc/boot.silent' file
+ o Added cqcam to get pics from a Connectix Colour QuickCam
+ o Added kernel features
+   - enabled framebuffer support in basic kernel
+   - added h323 masq module
+   - new via-rhine driver (requires pci-scan) to 
+     support D-Link DFE-530TX rev A3
+   - Updated to M-System 4.2.1 Disk-On-Chip driver
+     Note that the doc devices have different majors now!
+ o Added the nano editor
+ o Added stamp
+ o Added libjpeg
+ o Added digitemp
+ o Added msntp ntp client
+ o Made ping suid root
+
+v0.52 -- October 15, 2000
+-------------------------
+ o Finished integrating rd_functions and rd_dialog into pwlconfig
+   - Thank you Ralph for all the work you've done!
+ o Added 2.2.17 kernel
+   - GPL dp83815 driver
+   - GPL compliant M-Sys DOC driver (loadable module)
+   - new network device drivers
+ o Added nullidentd ident server
+ o Split dev package into a console and X package
+ o Added libpthreads to glibc
+
+v0.51 -- September 4, 2000
+--------------------------
+ o Bugfixes in:
+   - filesystem
+   - mgetty+sendfax
+   - ncurses
+   - sysklogd
+   - fileutils
+   - crond
+ o Simplified rocketmodem initscript
+ o Changed initscripts to support rd_dialog and rd_functions
+ o Added telinit symlink to sysvinit
+ o Added sh symlink to ash
+ o Default login shell in passwd is sh now
+ o Added rd_dialog and rd_functions to build target devices
+
+v0.50 -- August 17, 2000
+------------------------
+ o Changed procps to use ncurses and split ncurses dependent file into
+   a seperate binary package
+ o Changed vim to use ncurses. I am assuming that if there's room for vi
+   there's got to be room for ncurses, too.
+ o Changed bash to use ncurses
+ o Changed XFree86 to use ncurses in xterm
+ o Changed fvwm2 to use ncurses
+ o Added iptraf
+ o Added tcpdump
+ o Added netscape navigator 4.74
+ o Added a bare minimum termcap to libtermcap
+ o Added xmodmap, xconsole and xset to XFree86 packages
+ o Added a wrapper script to mgetty
+ o Added sfdisk to util-linux for automatic install floppies w/scripting
+ o Added symlink to xpm so ldconfig won't complain
+ o Changed vim to build termcap and ncurses versions
+ o Changed termcap to support only ansi, linux, dumb, vt100 and xterm
+ o Added ansi to ncurses (ansi is the windows telenet default)
+ o Changed rc.sysinit to set kernel console logging level to 4
+ o Fixed defective libncurses.so.4 link
+ o Tested netscape navigator 4.74 and removed netscape 4.7
+   Registered with netscape as official distributor
+ o Moved busybox and tinylogin to "System Minimal"
+ o Added 'more' to util linux and patches to keep 'more' termcap dependent
+ o Build ipix system from PeeWeeLinux 0.50 without problems
+ o Edited rc.sysinit to check for binaries prior to using them
+
+v0.49 -- August 11, 2000
+------------------------
+ o Added libutil to glibc package, was 'lost' during conversion to rpm
+ o Added default busybox
+ o Added default tinylogin
+ o Changed tmp and var/tmp symlinking in filesystem
+ o Added microcom
+ o Added ncurses
+ o Added e2fsprogs
+ o Added minicom
+
+v0.48 -- August 03, 2000
+----------------------
+ o Added libNoVersion to glibc
+ o Made significant changes to kernel rpms to improve kernel build process
+ o Added misc directory for non pwl scripts
+ o Fixed fvwm2 package, stripped binaries, etc
+ o Added lost mnt directory
+ o Added uname to sh-utils
+ o Added pcmcia support to initscripts
+ o Enhanced pcmcia support with most common settings preconfigured
+ o Fixed bug in rl2 driver rpm build process
+ o Fixed ipix kernel configuration for pcmcia support
+ o Removed the requirement for fgrep from rc.pcmcia
+ o Modified kernel spec for easy debugging
+ o Added -c 4 switch to klogd
+ o Serval kernel additions
+   - Comtrol RocketModem and RocketPort driver
+   - wireless tools
+
+v0.47 -- July 24, 2000
+----------------------
+ o Created develop directory for sources of files needed for
+   the development environment but not the actual distribution
+ o Added syslinux and dosfstools sources to develop
+ o Added dosfstools and syslinux to the bin directory
+ o Removed obsolete scripts/build_pwl.sh
+
+v0.46 -- July 17, 2000
+----------------------
+ o Added working rl2 driver to pcm4823 kernel
+ o Added Spectrum 24 PCMCIA wireless driver to kernel
+ o Added RPM version 3.0.3 binary to bin directory
+   There are some issues with the 3.0.4 rpm binary included
+   in RedHat 6.2
+
+v0.45 -- July 14, 2000
+----------------------
+ o Added pcmcia support to kernel (ipix in particular)
+ o Added preliminay support for rl2 in kernel srpm
+ o Multiple bug fixes
+ o Edited XF86Config.FBDev for proper keyboard support
+ o Added xpm package for libXpm support
+ o Added libBrokenLocale to glibc
+ o Added egcs package for libstdc++ support
+
+v0.44 -- July 6, 2000
+---------------------
+ o Added frame buffer devices to XFree86FBDev
+
+v0.43 -- July 5, 2000
+---------------------
+ o Added fvwm2 package
+ o Fixed dev package permissions
+ o Fixed ldconfig, added ld.so.conf
+ o Added modified RedHat source RPM
+ o New XFree86 SRPM
+   Fixed startx, xfs files, added 100dpi fonts
+
+v0.42 -- June 18, 2000
+----------------------
+ o Changed kernel spec
+   dp83815 sources are no longer packaged
+
+v0.41 -- June 18, 2000
+----------------------
+ o Fixed zoneinfo in glibc package
+
+v0.40 -- June 18, 2000
+----------------------
+ o Added some scripts
+ o Added ipchains
+ o Added ipmasqadm
+ o Added wireless driver for Symphony cards
+
+v0.33 -- June 13, 2000
+----------------------
+ o In the middle of converting everything to rpm
+ o rpm2tar.sh
+
+v0.32 -- March 19, 2000
+-----------------------
+ o Added netscape navigator 4.72
+ o Added /usr/X11R6/lib/X11/locale to XFree86
+ o Added additional accelerated Xservers
+ o Added fonts needed by citrix and netscape
+ o Properly generate fonts.dir in the font directories now 
+
+v0.31 -- March 18, 2000
+-----------------------
+ o Added libc5 libraries under packages/libc5/libs
+ o Added netscape 3.04 under packages/libc5/network
+ o Added citrix client under packages/libc5/network
+ o Added a commented entry for xdm to inittab
+
+v0.30 -- March 17, 2000
+-----------------------
+ o Added a standard lilo package.
+ o Netscape 3.04 requires libc5 libs. What to do???
+ o Thought of netscape 4.72. The patchfile is still here.
+   Netscape package comes in at 21,580k plus dependend libs.
+ o New kernel, again, now with M-SYS DOC and PS/2 mouse and
+   without M-SYS DOC but with PS/2 mouse.
+ o Added tinylogin
+ o Added vim editor in a featured and minimal configuration
+   Renamed vim binary to vi
+ o Added ee editor
+ o Replaced bash 1.4 with bash 2.03
+ o Added lildl.so.2 to the base_libs package, removed duplicates
+   from other packages
+ o Removed resolv.conf from base_configuration
+ o Removed uptime from sh-utils 
+ o Fixed the thttpd package and added uucp to system files
+ o Changed the basefilesystem to include the X directories and
+   changed /usr and /local symlinks to a real directory
+ o Added base_filesystem-minimal-1.tar for memory constrained systems
+ o Added the syslinux-1.48.zip containing syslinux for DOS
+ o Revised several packages to support the XFree86 packages
+ o Continued work on eliminating duplicate files across packages
+ o Adding revision numbers to packages, i.e. thttp-1.2.3-1.tar
+            This is the first revision of the package ---^
+ o Renamed packages/base/<packages>
+ o Removed configuration from base_filesystem and created base_configuration
+ o Compiled and added XFree86 packages
+
+v0.20 -- March 1, 2000
+----------------------
+ o Removed mingetty from util-linux. Now a seperate package!
+ o Automated compilation of sources. Added patches. 
+ o Added dhcpcd package as alternative to pump
+ o Added thttpd webserver
+
+v0.19 -- January 23rd, 2000
+---------------------------
+ o Renamed packages to include version numbers
+ o Moved extracted sources to build_pwl
+ o Added documentation
+ o Added boa-0.94.0
+ o Upgraded pwlconfig to v0.7
+ o Added patches directory to store patches that make
+   pwl sources from generic sources
+ o Removed .list files from packages directory 
+ o Added <package>.README files with package description
+
+v0.18 -- January 7th, 2000
+--------------------------
+ o Added pwlcfg package
+ o Added bash package
+ o Added minimal package; minimized files for
+   single floppy systems, etc
+ o Updated _base_filesystem package to contain a full
+   /etc/termcap file.
+ o Updated cron package, added run-parts file
+ o Updated misc package, added killall command
+ o Updated syslog package, renamed 30syslog to 07syslog
+
+v0.17 -- December 21st, 1999
+----------------------------
+ o Added router kernel with ppp support
+ o Added plilo package
+ o Added dhcp server package
+ o Added cron package
+ o Updated syslog package, added startup script
+ o Updated netbase package, added startup script
+ o Added kernel patch for M-Systems DOC2000 to sources
+
+v0.16 -- December 17th, 1999
+----------------------------
+ o Added patched lilo sources lilo6-21.tar.gz to boot
+   linux from doc2000 with original firmware.
+   thanks to Dvir Oren <dvir@lucivon.com>
+ o Added doc script to prepare and install a system on
+   doc 2000, thanks to Ralph Stickley <ralph@datalux.com>
+
+v0.15 -- December 16th, 1999
+----------------------------
+ o Changed /bin/update to /sbin/update in busybox.tar
+ o Added kernel with FAT support.
+ o Removed logger from syslog package.
+ o Created package script to create packages from mnt dir.
+ o Split distribution to have a binary only distribution.
+ o Created script to build distributions of all files and
+   binary packages only.
+
+v0.14 -- December 13th, 1999
+----------------------------
+ o First functioning version.

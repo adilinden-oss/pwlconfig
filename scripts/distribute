@@ -93,7 +93,8 @@ do_pwlconfig () {
         Embedded_Build/scripts                 \
         Embedded_Build/bin                     \
         Embedded_Build/examples                \
-        Embedded_Build/pwlconfig  
+        Embedded_Build/pwlconfig               \
+        Embedded_Build/CHANGELOG  
 }
 #
 # create the iso image

@@ -8,7 +8,7 @@ PWL_MAJ_VER="0"           # major release number
 PWL_MIN_VER="53"          # minor release number
 #
 PWL_REV_VER=""           # revision level
-PWL_REV_VER=".23"           # revision level
+PWL_REV_VER=".24"           # revision level
 #
 #  Current PeeWeeLinux Release
 #
@@ -29,6 +29,19 @@ Requires lxdialog from /usr/src/linux/scripts/lxdialog
 
 History
 -------
+
+Sun Dec 17 2000 Adi Linden <adi@adis.on.ca>
+- pwlconfig
+    added feature to check for packaged directory and extract rpms if not
+    there
+- pwl_defaults
+    added the rd_initscripts variable to allow for custom fstab and rc.init
+- pwl_functions
+    removed checking for mkBootDevice. Script shouldn't be needed any longer
+- pwl_target_load
+    changed calculations in func_rd_build_ro_root_rd as suggested
+    by Dean Brown
+- cleaned up script directory    
 
 Tue Dec 12 2000 Adi Linden <adi@adis.on.ca>
 - v0.53.23

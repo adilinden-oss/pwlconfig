@@ -111,10 +111,11 @@ PKG_INDEX=.index.list
       echo '   then cp /usr/src/linux/scripts/lxdialog/lxdialog to ./bin)'
       exit 1
    fi
-   if [ ! -f "$DEV_MGR" ]; then
-      echo Shell script $DEV_MGR not found
-      exit 1
-   fi
+# no longer needed I believe!   
+#   if [ ! -f "$DEV_MGR" ]; then
+#      echo Shell script $DEV_MGR not found
+#      exit 1
+#   fi
    if [ ! -f "$PWL_CUSTOM" ] ; then
       echo Shell script $PWL_CUSTOM not found
       exit 1

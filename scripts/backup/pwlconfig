@@ -541,6 +541,7 @@ function main_init()
        #
        if [ $? = "1" ] || [ $? = "255" ]; then
            $decho "Nothing was done. User cancelled..."
+           return
        else
            $decho "Calling $PWL_PKGMGR to extract rpms..."
 	   $PWL_PKGMGR --add-all

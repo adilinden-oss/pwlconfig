@@ -49,15 +49,20 @@
 #
 #  Reset Project Defaults
 #
-#     Selecting this option will prompt you for one of the devices.
-#     This is not required, but may save changing every parameter
-#     manually, when most are assigned sensible defaults here.
+#     Selecting this option will reset all configuration parameters
+#     to their default settings.
 #
 #  Save Project Defaults
 #
 #     As usual, all changes are only temporary until they are saved.
 #     Select Save here to capture your changes at anytime.  Also, every
 #     time you save your project the defaults are also saved.
+#
+#  Target Selection
+#
+#     Selecting this option will prompt you to select a target
+#     environment to use. It will determine the filesystem and
+#     partitioning strategy for your target device.
 #
 #  Global Parameters:
 #
@@ -86,6 +91,13 @@
 #    Initrd Image Name: initrd
 #       This is the name of the initrd file the target build script
 #       may create.
+#
+#    Modify System Boot Files: yes
+#       This option determines if the target load scripts will modify
+#       the rc.init and fstab files during the target load operation.
+#       The recommended setting is yes. Setting this option to no
+#       allows for specific rc.init and fstab files to be included as
+#       custom files.
 #
 #  Boot Loader Options:
 #
@@ -194,6 +206,7 @@ fi
 #export rd_kernel="bzImage"            # Prompt: Boot Image Name
 #export rd_ramdisk="ramdisk"           # Prompt: Ramdisk File Name
 #export rd_initrd="initrd"             # Prompt: Initrd File Name
+#export rd_initscripts="y"             # Prompt: Modify System Boot Files
 #
 ##SEC Boot loader options
 #
@@ -205,7 +218,7 @@ fi
 ## Some project specific parameters not changed in pwl_defaults
 ## Delimited by leading space
 # export target_scheme="comp_rd_ext2"  # Prompt: Target
-# export pwl_version=""                # Prompt: PeeWeeLinux version
+# export pwl_version=""                # Prompt: PeeWeeLinux Version
 #
 ##SEC floppy target configuration parameters
 #
@@ -626,6 +639,21 @@ function menu_defaults()
              "Skip"|"skip")
                 xx=1
                 ;;
+	     "rd_initscripts")
+	        # the rd_iniscripts variable gets special treatment
+		# it's a simple yes/no question
+                $decho "Change rd_inistscripts setting..."
+		show_confirm "Modify System Boot Files?" \
+		   "This option determines if the target load scripts will modify the rc.init and fstab files during the target load operation. The recommended setting is yes. Setting this option to no allows for specific rc.init and fstab files to be included as custom files." "10"
+                if [ $? = "1" ] || [ $? = "255" ]; then
+                    $decho "User selected no..."
+		    default_change "rd_initscripts" "n"
+		else
+		    $decho "User selected yes..."
+		    default_change "rd_initscripts" "y"
+                fi
+                $decho "End change rd_inistscripts setting..."
+		;;
              *)                      # assign new value to selected variable
                 default_change $selection
               ;;
