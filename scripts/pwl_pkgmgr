@@ -370,7 +370,7 @@ function pkgmgr_add_all()
           echo "Skipping $rpmFile..."
       else
           echo -n "Extracting $rpmFile."
-          pkgmgr_rpm_extract $PWD/$rpmFile $PKG_DIR > /dev/null 2> /dev/null
+          pkgmgr_rpm_extract $rpmFile $PKG_DIR > /dev/null 2> /dev/null
           echo  ".."
       fi	  
    done   

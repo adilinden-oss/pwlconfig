@@ -7,7 +7,7 @@ PWL_MAJ_VER="0"           # major release number
 #
 PWL_MIN_VER="53"          # minor release number
 #
-PWL_REV_VER="8"           # revision level
+PWL_REV_VER="9"           # revision level
 #
 #  Current PeeWeeLinux Release
 #
@@ -28,6 +28,10 @@ Requires lxdialog from /usr/src/linux/scripts/lxdialog
 
 History
 -------
+
+Mon Nov 06 2000 Adi Linden <adi@adis.on.ca>
+- absolute RPM variable paths broke extract_all function, fixed
+- fixed cd_install
 
 Wed Nov 01 2000 Adi Linden <adi@adis.on.ca>
 - added pwl_kernel for building custom kernels
