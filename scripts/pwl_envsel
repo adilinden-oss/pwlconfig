@@ -65,7 +65,7 @@ function pwl_envsel_name()
    uncomp_rd_ext2_desc="Uncompressed ramdisk, boot from ext2 partition"
    ro_root_rd_desc="Read-only root fs with multiple ramdisks"
    fd_raw_desc="Compressed ramdisk on floppy disk w/o bootloader"
-   fd_cd_desc="Compressed ramdisk on FAT12 floppy disk w/syslinux"
+   fd_fat_desc="Compressed ramdisk on FAT12 floppy disk w/syslinux"
    iso_rd_desc="Bootable iso image with ramdisk"
    iso_ro_desc="Bootable iso image with read-only root"
    rw_root_desc="Read-write root on a single partition"
@@ -97,8 +97,8 @@ function build_pwl_envsel ()
    echo -n " 'ro_root_rd'     '$ro_root_rd_desc' " >> $1
    echo -n " 'skip'           ' ----- Non-flash target devices -----' " >> $1
    echo -n " 'fd_raw' '$fd_raw_desc' " >> $1
+   echo -n " 'fd_fat'  '$fd_fat_desc' " >> $1
    if [ "$pwlExp" = "true" ]; then
-       echo -n " 'fd_cd'  '$fd_cd_desc (experimental)' " >> $1
        echo -n " 'iso_rd' '$iso_rd_desc (experimental)' " >> $1
        echo -n " 'iso_ro' '$iso_ro_desc (experimental)' " >> $1
        echo -n " 'skip' ' ----- For testing only!  -----' " >> $1

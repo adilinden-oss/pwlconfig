@@ -7,7 +7,7 @@ PWL_MAJ_VER="0"           # major release number
 #
 PWL_MIN_VER="53"          # minor release number
 #
-PWL_REV_VER="4"          # revision level
+PWL_REV_VER="5"           # revision level
 #
 #  Current PeeWeeLinux Release
 #
@@ -28,6 +28,16 @@ Requires lxdialog from /usr/src/linux/scripts/lxdialog
 
 History
 -------
+
+Wed Oct 25 2000 Adi Linden <adi@adis.on.ca>
+- added floppy w/syslinux bootloader target
+- fixed handling of returned value of pwl_envsel in pwl_default for <exit>
+
+Mon Oct 23 2000 Adi Linden <adi@adis.on.ca>
+- added check for proper execution directory to pwlconfig
+- pwl_pkgmgr
+    added steps to clean before and after extracting a rpm package
+    prevent binary sources (ok, a paradox) to be converted to tar
 
 Sat Oct 21 2000 Adi Linden <adi@adis.on.ca>
 - created pwl_create to specify new project or load example

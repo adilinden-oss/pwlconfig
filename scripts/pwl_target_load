@@ -19,10 +19,11 @@
 # func_rd_build_uncomp_rd_fat  build uncompressed ramdisk boot from FAT
 # func_rd_build_uncomp_rd_ext2 build uncompressed ramdisk boot from ext2
 # func_rd_build_ro_root_rd     build read-only root fs w/ramdisks 
+# func_rd_build_fd_common      sub function containing parts common to fd build
 # func_rd_build_fd_raw         build floppy system w/o bootloader
+# func_rd_build_fd_fat         build floppy system w/syslinux on fat12
 #
 # Proposed:
-# func_rd_build_fd_fat         build floppy system w/syslinux on fat12
 # func_rd_build_rd_iso         build bootable iso image w/ramdisk
 # func_rd_build_ro_iso         build bootable iso image w/read-only root
 # func_rd_build_rw_root        build single read/write filesystem on flash
@@ -1290,26 +1291,10 @@ EOF
 
 ######################################################################
 #
-# func_rd_build_rw_root
+# func_rd_build_fd_common
 #
-# This function will create a target drive with a single large ext2
-# partition. The partition is mounted rw at all times just like a
-# normal HD.
-#
-# It's here for completeness but not recommended
-#
-
-# func_rd_build_rw_root
-
-
-
-######################################################################
-#
-# func_rd_build_fd_raw
-#
-# This function will create a embedded sytem on a floppy disk. The
-# kernel starts at block 0 and is booted by the bios. No bootloader
-# needed.
+# This function does the initial steps of building the ramdisk image
+# for the raw and syslinux type target builds.
 #
 # Chain of Events:
 # ================
@@ -1333,12 +1318,11 @@ EOF
 #   b. Ramdisk size
 #   c. Kernel size
 #   d. Make sure it fits
-# 11. Write kernel and bzImage to floppy
+# 11. Return to calling function 
 # 
 
-func_rd_build_fd_raw () {
+func_rd_build_fd_common () {
 
-#------------------------- Load files to temp location -----------
     # sanity check first define our target to be the floppy drive
     rd_target=$rd_floppy
     func_rd_sanity || return 1
@@ -1365,7 +1349,6 @@ func_rd_build_fd_raw () {
     else
         func_rd_action w
     fi
-#-------------------- Patch config files for this Environment ------------
 
     # add fstab and rc.init
 
@@ -1403,8 +1386,6 @@ func_rd_build_fd_raw () {
     umount $rd_loop_dev
     func_rd_action test || return 1
 
-#--------------------- Compress All files --------------
-
     # compress ramdisk
     func_rd_action m "Compressing $rd_loop_dev into $rd_ramdisk..."
     dd if=$rd_loop_dev bs=1k count=$rd_size_fs | gzip -v9 > $rd_tmp/$rd_ramdisk
@@ -1413,7 +1394,6 @@ func_rd_build_fd_raw () {
     # free loopback device
     func_rd_break_loopback
 
-#--------------------- Verify Space ----------------------
     # calculate space on floppy
     func_rd_action m "Determining space on target device..."
     rd_size_avail=`sfdisk -s $rd_target`
@@ -1432,10 +1412,29 @@ func_rd_build_fd_raw () {
     else
         func_rd_action s
     fi
-#--------------------- Patch kernel image -------------------------------
+}    
+
+######################################################################
+#
+# func_rd_build_fd_raw
+#
+# This function will create a embedded sytem on a floppy disk. The
+# kernel starts at block 0 and is booted by the bios. No bootloader
+# needed.
+#
+# Chain of Events:
+# ================
+#
+# 1. Call common part
+# 2. Write kernel and bzImage to floppy
+# 
+
+func_rd_build_fd_raw () {
+
+    # call the common portion
+    func_rd_build_fd_common
 
     # put the stuff on out floppy device
-
     # kernel
     func_rd_action m "Copying $rd_kernel to $rd_target..."
     { dd if=$rd_projectroot/boot/$rd_kernel of=$rd_target bs=1k } >>$rd_log 2>&1
@@ -1451,14 +1450,81 @@ func_rd_build_fd_raw () {
     # normal vga video mode
     rdev -v $rd_target -1
 
-#--------------------- Extract to device --------------------------------
-
     # ramdisk image
     func_rd_action m "Copying $rd_ramdisk to $rd_target..."
     { dd if=$rd_tmp/$rd_ramdisk of=$rd_target bs=1k seek=$rd_size_kernel } >>$rd_log 2>&1
     func_rd_action test
 
     sync
-
 }
- 
+
+######################################################################
+#
+# func_rd_build_fd_fat
+#
+# This function will create a embedded sytem on a floppy disk. The
+# floppy is formatted with a FAT filesystem. The syslinux bootloader
+# loads the kernel and boots the system.
+#
+# Chain of Events:
+# ================
+#
+# 1.  Call common part
+# 2.  Install master boot record (MBR)
+# 3.  Create FAT filesystem
+# 4.  Install syslinux bootloader
+# 5.  Mount floppy device
+# 6.  Copy kernel and ramdisk images
+# 7.  Create syslinux.cfg on floppy device
+# 8.  Unmount floppy device
+# 9.  Cleanup
+#
+
+func_rd_build_fd_fat () {
+
+    # call the common portion
+    func_rd_build_fd_common
+
+    # install mbr
+    func_rd_action m "Installing master boot record...."
+    [ -f $rd_mbr ] && dd if=$rd_mbr of=$rd_target bs=446 count=1 >>$rd_log 2>&1
+    func_rd_action test
+    
+    # create FAT fs
+    func_rd_action m "Creating FAT 12 filesystem...."
+    mkdosfs $rd_target >>$rd_log 2>&1
+    func_rd_action test
+
+    # install syslinux bootloader
+    func_rd_action m "Installing syslinux bootloader...."
+    syslinux $rd_target
+    func_rd_action test
+
+    # mount target
+    func_rd_action m "Mounting target device ${rd_target}...."
+    mount -t msdos $rd_target $rd_mount
+    func_rd_action test
+
+    # copy files
+    func_rd_action m "Copying the ramdisk...."
+    cp -f $rd_tmp/$rd_ramdisk $rd_mount/$rd_ramdisk
+    func_rd_action test
+
+    func_rd_action m "Copying the kernel...."
+    cp -f $rd_projectroot/boot/$rd_kernel $rd_mount/$rd_kernel
+    func_rd_action test
+
+    # create syslinux.cfg
+    func_rd_action m "Creating syslinux.cfg...."
+    rd_bp_kernel=$rd_kernel
+    rd_bp_initrd=$rd_ramdisk
+    rd_bp_root=/dev/ram
+    rd_bp_rd=$((rd_size_fs + rd_bp_rd_margin))
+    func_rd_boot_syslinux > $rd_mount/syslinux.cfg
+    func_rd_action test
+    
+    # unmounting the floppy device
+    func_rd_action m "Unmounting target device ${rd_target}...."
+    umount $rd_target
+    func_rd_action test
+}

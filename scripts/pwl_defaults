@@ -504,10 +504,13 @@ function menu_defaults()
                 ;;
              "Sel")                  # select new target scheme
                 $PWL_ENVSEL --desc .newtarget
-                chmod 777 .newtarget
-                . ./.newtarget
-                $RM  .newtarget    # use for internal variable
-                default_change target_scheme $target_scheme " "
+		# only do something if .newtarget is returned
+		if [ -f .newtarget ]; then
+                    chmod 777 .newtarget
+                    . ./.newtarget
+                    $RM  .newtarget    # use for internal variable
+                    default_change target_scheme $target_scheme " "
+		fi    
                 ;;
              "Skip"|"skip")
                 xx=1
