@@ -1,0 +1,597 @@
+#! /bin/bash
+#
+###
+# Usage: pwl_defaults [ cmd [ parmeters ] ... ]
+#
+#      Performs maintenance on Pee Wee Linux default project
+#      configuration.  Works from command line or interactively.
+#
+#   "cmd"    "parameters"        Results
+#   --type   <device type>     assigns default device type
+#   --reset  [<device type>]   reset the parameters to defaults for
+#                                current device type (or given type)
+#   --change <parmId> value    assigns parameter value to the parmId
+#   --init                     defines all configured parameters
+#   --save                     save temporary defaults
+#   --help                     this help screen
+#   --project project name     use this project (default is last project)
+#
+# Where:
+#  <device type >  - one of DOC, FLASH, FLOPPY or CDROM
+#  <parmId>        - one of the parameters defined in the defaults file
+###
+#
+# History:
+#   v0.85 - updated version number for release, no in-file help yet
+#   v0.1 - created
+#
+# Comments:
+#  The project defaults are contained in a defaults shell file.
+#  Executing this default file updates the internal variables
+#  used for the project.  Any shell script that needs to interact
+#  with a project should run the defaults script to setup the project
+#  environment (use --init command).
+#
+######
+#pwl_defaults.README
+#
+#  The project defaults define parameters that let you build your
+#  project for several different target devices.
+#
+#  For initial system development, building a file system on a floppy
+#  is probably the easiest. Once this boots, you can simply select
+#  another device and boot that and start expanding your project.
+#
+#  Or, you can build your file system for a Disk-On-Chip, change this
+#  parameter and create a bootable CD-ROM.
+#
+#     Short-Cut: use pwl_defaults --help to see command line
+#                options for changing parameters programatically.
+#
+#     Short-Cut: edit the projects/<project name>/project.defaults
+#                file, but keep the format intact so pwl_defaults
+#                can read it.
+#
+#  Reset Project Defaults
+#
+#     Selecting this option will prompt you for one of the devices.
+#     This is not required, but may save changing every parameter
+#     manually, when most are assigned sensible defaults here.
+#
+#  Save Project Defaults
+#
+#     As usual, all changes are only temporary until they are saved.
+#     Select Save here to capture your changes at anytime.  Also, every
+#     time you save your project the defaults are also saved.
+#
+#  Parameters:
+#
+#    Boot Image Path/name: /boot/doc2000
+#       This is the name of the kernel file you created when you
+#       re-built your kernel (or choose a package kernel file).
+#       These are usually given names like bzImage, vmlinuz, doc2000
+#       and so on
+#
+#    Boot Label for Lilo: pwlinuz
+#       When LILO boots your device, you can usually press TAB to see
+#       a list of kernels to boot from.  The name that appears is the
+#       name you specify here.
+#
+#    Boot Location: /dev/fla1
+#       When your device is the booting device, it is mounted as a device
+#       at this "location". This does not refer to your home town.
+#
+#    Device Mount Point
+#       This is where pwlconfig will default to mounting your device.
+#       You will be prompted to change this, but set this right and
+#       you don't have to type it in.
+#
+#    Device Name
+#       This is a nice name that shows up on your main menu. Don't make
+#       it too long, you'll look silly.
+#
+#    Device Partition
+#       The Partition number, 1, 2....  For Floppy disks, this may start
+#       with zero (0).
+#
+#    Device Type
+#       This string must be entered as shown.  Pick one.
+#
+#    Device Type Node
+#       This is the basis for your device.  Lilo needs this.
+#
+#    Project Mount Point
+#       This is a directory where your project will be "extracted" to.
+#       Change this name if you want a backup of your file system.
+#
+#END
+######
+#=============================================================================
+#
+# include generally handy functions
+#
+if [ -f "./scripts/pwl_functions" ] ; then
+  . ./scripts/pwl_functions
+elif [ -f "./pwl_functions" ] ; then
+  . ./pwl_functions
+else
+  echo "script pwl_functions not found"
+fi
+#
+PWL_DEFAULTS_VER=${PWL_REL_VER}".1"
+#
+#
+#=============================================================================
+#
+# The following section contains default parameters for various devices
+# This section is parsed to create the initial default configuration file.
+#
+#--COMMON
+#
+##  Configuration file for Pee Wee Linux project
+##  Execute this script to assign project parameters
+##   maintained by pwl_defaults - or carefully updated by hand
+##
+##    format: parmName=parmValue  # Prompt: Text message to display
+##
+## Project defaults (some may be overridden interactively)
+##
+#export prjMnt="mnt"                    # Prompt: Project Mount Point
+#export prjCustomSrc="/usr/local/src"   # Prompt: Project Custom Source File path
+#export deviceMnt="./mnt"               # Prompt: Device Mount Point
+#export bootLabel="pwlinuz"             # Prompt: Boot Label for LILO
+#
+#--COMMON
+#--DOC
+##  Initial defaults from Disk-On-Chip parameters
+#
+#export deviceType="DOC"                # Prompt: Device Type (DOC FLOPPY CDROM FLASH)
+#export deviceName="Disk-On-Chip"       # Prompt: Device Name
+#export deviceLoc=/dev/fla              # Prompt: Device type node (/dev/xxx)
+#export devicePartition="1"             # Prompt: Device Partition
+#export bootKernel="/boot/doc2000"      # Prompt: Boot Image Path/name
+#export bootDevice="/dev/fla1"          # Prompt: Boot Location
+#
+#--DOC
+#
+#--FLASH
+##   Initial defaults from flash disk (IDE type) parameters
+#
+#export deviceType="FLASH"              # Prompt: Device Type (DOC FLOPPY CDROM FLASH)
+#export deviceName="Flash Disk"         # Prompt: Device Name
+#export deviceLoc="/dev/hdc"            # Prompt: Device type node (/dev/xxx)
+#export devicePartition="1"             # Prompt: Device Partition
+#export bootDevice="/dev/hda1"          # Prompt: Boot Location
+#export bootKernel="/boot/vmlinuz"      # Prompt: Boot Image Path/name
+#
+#--FLASH
+#
+#--FLOPPY
+##  Initial defaults from Floppy drive parameters
+#
+#export deviceType="FLOPPY"             # Prompt: Device Type (DOC FLOPPY CDROM FLASH)
+#export deviceName="Floppy Disk"        # Prompt: Device Name
+#export deviceLoc="/dev/fd"             # Prompt: Device type node (/dev/xxx)
+#export devicePartition="0"             # Prompt: Device Partition
+#export bootDevice="/dev/fd0"           # Prompt: Boot Location
+#export bootKernel="/boot/vmlinuz"      # Prompt: Boot Image Path/name
+#
+#--FLOPPY
+#
+#--CDROM
+##  Initial defaults from CDROM drive parameters
+#
+#export deviceType="CDROM"              # Prompt: Device Type (DOC FLOPPY CDROM FLASH)
+#export deviceName="CD-Rom Drive"       # Prompt: Device Name
+#export deviceLoc="/dev/cdrom"          # Prompt: Device type node (/dev/xxx)
+#export devicePartition=""              # Prompt: Boot Location
+#export bootDevice="/dev/hda1"          # Prompt: Boot Location
+#export bootKernel="/boot/vmlinuz"      # Prompt: Boot Image Path/name
+#
+#--CDROM
+#
+#=============================================================================
+#
+# make_default( deviceTYPE,  [ default_file ] )
+#     builds initial default parameters file for given device type
+#
+function make_default()
+{
+   $decho "start make_default $*"
+
+   if [ "$2" != "" ] ; then
+      dftFile="$2"
+   else
+      dftFile="$PWL_PRJ/.$DEFAULT_CFG"
+   fi
+   $decho "build default file $dftFile"
+   #
+   # parse default section to define all common parameters
+   #
+   sed -n /^#--COMMON/,/^#--COMMON/p $0 | sed s/^#//g > .dft.tmp
+   #
+   # define device type specific parameters for given device type
+   #
+   sed -n /^#--$1/,/^#--$1/p $0 | sed s/^#//g | cat >> .dft.tmp
+   #
+   # clean it up
+   #
+   grep -v "\-\-" .dft.tmp > $dftFile
+   #
+   $RM .dft.tmp
+   $decho "done make default"
+}
+
+#
+# default_change ( parameterName, parameterValue )
+#
+function default_change()
+{
+   if [ "$1" = "" ] ; then
+     return
+   fi
+   chgParm=$1
+   if ! grep -qs "$chgParm" $DFT_FILE_TMP ; then
+      return   # invalid parameter name specified
+   fi
+   lineIn="`grep "$chgParm" $DFT_FILE_TMP`"
+   $decho Got Line $lineIn
+   #
+   # parse the line
+   #
+   tmpName=${lineIn%%=*}
+   parmName=${tmpName##export }
+   #
+   parmLine=${lineIn##*=}
+   tmpValue=${parmLine%%#*}
+   parmValue=`echo $tmpValue | sed s/\"//g`
+   #
+   promptValue=${lineIn##*Prompt: }
+   #
+   # prompt or use given new value
+   #
+   if [ "$2" = "" ] ; then
+
+      #
+      # prompt for new value
+      #
+      get_string "Assign Project Default" \
+                 "Enter new default value for $promptValue:" \
+                 newValue $parmValue
+
+      if [ "$?" != "0" ] ; then
+         return
+      fi
+      if [ -z "$newValue" ] ; then
+         return
+      fi
+   else
+      newValue=$2
+   fi
+   # remove old value
+   #
+   grep -v "$parmName" $DFT_FILE_TMP > .dft.tmp
+   #
+   # insert new value
+   #
+   echo  "export $parmName=\"$newValue\"   # Prompt: $promptValue" >> .dft.tmp
+   cp .dft.tmp $DFT_FILE_TMP
+
+   $decho "done default_change"
+}
+
+#
+#  default_save( [keepTmp] )
+#
+function default_save()
+{
+   $decho "start default_save"
+   if [ -f "$DFT_FILE_TMP" ] ; then
+      cp -f $DFT_FILE_TMP "$PWL_PRJ/$DEFAULT_CFG"
+      if [ "$1" = "" ] ; then
+         rm -f $DFT_FILE_TMP
+      fi
+   fi
+   $decho "end default_save"
+}
+
+#
+# default_reset( [device type] )
+#     prompts for device type or uses given device type to generate
+#     the default configuration file
+#
+function default_reset()
+{
+   $decho "start default_reset"
+   #
+   # prompt for new device Type
+   #
+   if [ "$1" = "" ] ; then
+      get_string "Select new default device for project: `basename $PWL_PRJ` " \
+                 "Enter device DOC, FLOPPY, CDROM or FLASH" \
+                 newType $deviceType
+      #
+      if [ "$?" != "0" ] ; then
+         $decho "end default_reset 1"
+         return 1
+      fi
+      if [ -z "$newType" ] ; then
+         $decho "end default_reset none 1"
+         return 1
+      fi
+   else
+      newType=$1
+   fi
+   case "$newType" in
+      "DOC"|"FLOPPY"|"CDROM"|"FLASH")
+           #
+           # build the default configuration file for this type
+           #
+           make_default $newType
+           deviceType=$newType
+      ;;
+      *)
+          show_message "Unknown Type" \
+             "Device type $newType is not known"
+            $decho "end default_reset unknown 1"
+            return 1
+      ;;
+   esac
+   $decho "done default_reset"
+   return 0
+}
+
+
+#
+# default_setup( )
+#
+function default_setup()
+{
+  $decho "start default_setup"
+  #
+  if [ ! -f "$PWL_PRJ/$DEFAULT_CFG" ] ; then      # no configuration found
+     if [ "$deviceType" = "" ] ; then                # must specify device type
+        usage "Device type not specified - defaults not created"
+     fi
+     default_reset $deviceType                       # generate default config file
+     if [ $? != "0" ] ; then
+        usage "Device type not specified - defaults not created"
+     fi
+  fi
+  #
+  # make sure we have a temporary default
+  #
+  if [ ! -f "$DFT_FILE_TMP" ] ; then
+     cp "$PWL_PRJ/$DEFAULT_CFG" $DFT_FILE_TMP
+     $decho "created temp default: $DFT_FILE_TMP"
+  fi
+  #
+  $decho "end default_setup"
+}
+
+#=============================================================================
+#
+# show_defaults ( title,  pack.lst )
+#    Show the dialog list
+#
+function show_defaults()
+{
+   if [ -z "$defaultsDefault" ] ; then
+      filesDefault=Add
+   fi
+   echo -n $DIALOG --title "$1" \
+                   --backtitle \"$backtitle\"       \
+                   --menu                           \
+"'Select operation or default parameter           Project: $CFG_BASE'" \
+              $ROWS $COLS $((ROWS-8)) \
+              " '$defaultsDefault' " > .dialog
+
+   cat $2 >> .dialog
+   . ./.dialog
+}
+
+#
+# build_defaults( default.lst )
+#     Create a dialog list file for interactive display
+#
+function build_defaults()
+{
+   $decho "start build_defaults"
+
+   echo -n "'Reset'  'Reset Project Defaults' " > $1
+   #
+   if [ ! -f "$2" ] ; then
+      return
+   fi
+   echo -n "'Save'   'Save Project Defaults'             \
+            'skip'    '----' "                           >>$1
+   #
+   # remove any comments and blank lines, sort by variable name
+   #
+   cat $2 | grep -v "^#" | grep -v "^[ ]*$" | sort -t: +1 | cat > .dft.tmp
+   #
+   # process commands
+   #
+   while [ -s .dft.tmp ] ; do
+         #
+         # extract the next line and remove it from the defaults file
+         # (gwak is probably faster, but we've only got 10 or so items)
+         #
+         lineIn="`head -1 .dft.tmp`"
+         tail +2 .dft.tmp | cat > .xx
+         cp .xx .dft.tmp
+         #
+         # parse the line
+         #
+         tmpName=${lineIn%%=*}
+         parmName=${tmpName##export }
+         #
+         parmLine=${lineIn##*=}
+         parmValue=${parmLine%%#*}
+         #
+         promptValue=${lineIn##*Prompt: }
+         #
+         # output for dialog
+         #
+         echo -n  " '$parmName' '$promptValue: $parmValue' " >> $1
+         #
+   done
+   #
+   $RM  .dft.tmp
+   $decho "done build_defaults"
+}
+
+#
+# menu_project - operate on system projects
+#
+function menu_defaults()
+{
+   $decho "menu_defaults"
+   defaultsDone="0"
+   #
+   while [ "$defaultsDone" = "0" ] ; do
+      #
+      #  build list of projects from projects directory
+      #
+      build_defaults .defaults.lst $DFT_FILE_TMP
+      #
+      show_defaults '"Project Defaults Menu"' .defaults.lst 2>.result
+
+      retVal=$?
+      read selection <.result
+      defaultsDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            defaultsDone=1
+            ;;
+         2)
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_defaults.README
+
+            show_help pwl_defaults.README menu_defaults   # help
+            ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           #
+           case "$selection" in
+             "Reset")
+                default_reset        # prompt to confirm and replace it
+                ;;
+             "Save")
+                default_save YES     # save, but keep temporary configuration
+                ;;
+             "Skip"|"skip")
+                xx=1
+                ;;
+             *)                      # assign new value to selected variable
+                default_change $selection
+              ;;
+           esac
+      esac
+   done
+   $RM  .default.lst .result pwl_defaults.README
+   $decho "done menu_defaults"
+}
+
+#=============================================================================
+#
+# main - parse command line
+#
+function default_main()
+{
+   progInfo="`basename $0` - Version $PWL_DEFAULTS_VER"
+   if [ "$backtitle" = "" ] ; then
+      backtitle=$projInfo
+   fi
+   #
+   # use last project or pick one - if none exists, then leave
+   #
+   if [ -z "$CFG_BASE" ] ; then
+      pwl_init_project
+   fi
+   #
+   # otherwise, parse command line and execute commands or do interactive
+   #
+   gotOne=0
+   while [ "$1" != "" ] ; do
+      $decho "parse $*"
+      case "$1" in
+         "--help")                   #--help
+            usage
+            ;;
+         "--project")
+            pwl_init_project $2
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         "--type")                   #--type  DOC | FLOPPY
+            deviceType="$2"
+            shift
+            ;;
+
+         "--init")                   #--init
+            default_setup
+            default_define
+            gotOne=1
+            ;;
+
+         "--reset")                  #--reset [TYPE]
+            default_reset $2
+            if [ "$?" != "0" ] ; then
+               $decho "end default_reset not done 1"
+               exit 1
+            fi
+            if [ ! "$2" = "" ] ; then
+               shift
+            fi
+            gotOne=1
+            ;;
+
+         "--change")                 #--change parm new_value
+            if [ "$2" = "" ] ; then
+               usage "No parameter specified"
+            fi
+            if [ "$3" = "" ] ; then
+               usage "No new value specified"
+            fi
+            default_setup                # validate setup
+            default_change $2 $3
+            default_define               # load current configuration
+            shift ; shift
+            gotOne=1
+            ;;
+
+         "--save")                    #--save
+            default_save
+            gotOne=1
+            ;;
+
+         *) usage "Invalid command $*"
+            ;;
+      esac
+      shift
+   done
+   #
+   # do interactive operation
+   #
+   if [ $gotOne = "0" ] ; then
+      #
+      default_setup
+      default_define         # use current "temporary" defaults
+      menu_defaults
+      default_define         # use changed "temporary" defaults
+   fi
+}
+
+# start here
+  debug_mode 0              # set to 1 to enable debug macros
+  $decho "START $0"
+
+  default_main $*
+
+  $decho "END $0"
+  exit 0
+#
+# end
+#

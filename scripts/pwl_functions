@@ -1,0 +1,654 @@
+#
+# Make sure we're really running bash.
+#
+#  History
+#   v0.90 - changed user check to allow existing .result file
+#   V0.85 - changed dir_tree_list to remove leading "/"
+#   V0.84 - check file timestamps to verify save operation is required
+#   V0.83 - updated help for context, in-file and global help support
+#   V0.3 Added all new script names, confirm_save added for all to use
+#   V0.2 Added context sensitive help option, change lxdialog message
+#   V0.1 Created from other scripts
+#
+[ -z "$BASH" ] && { echo "`basename $0` requires bash" 1>&2; exit 1; }
+#
+MOVE_TO_COL="echo -en \t\t"
+WHOAMI=whoami
+#
+# Release Version number
+#
+PWL_REL_VER="0.90"
+#
+# include from "scripts directory or "Embedded_Build directory
+#
+PROGRAM_NAME=`basename $0`
+basedir=`basename $PWD`
+#
+if [ "$basedir" = "Embedded_Build" ] ; then
+   basedir="./scripts"
+   baseprj="."
+else
+   basedir="."    # we must be in the scripts executed as . ?
+   baseprj=".."
+fi
+
+#echo functions base: $basedir projects at: $baseprj
+#
+# utility programs, and directories may vary with distro or preference
+#
+export DIALOG="$baseprj/bin/lxdialog"
+PLILO="$baseprj/bin/lilo"
+#
+DEV_MGR="$basedir/mkBootDevice"
+PWL_BACKUP="$basedir/pwl_backup"
+PWL_CONFIG="$baseprj/pwlconfig"
+PWL_CUSTOM="$basedir/pwl_custom"
+PRJ_DEFAULTS="$basedir/pwl_defaults"
+PWL_FUNCTIONS="$basedir/pwl_functions"
+PWL_LISTER="$basedir/pwl_lister"
+PWL_PROJECTS="$basedir/pwl_projects"
+PWL_PKGCONF="$basedir/pwl_pkgconf"
+PWL_UPDATE="$basedir/pwl_update"
+RM="rm -f"
+TAR=tar
+#
+# PWL - Directories (based from installed directory)
+#
+export PRJ_DIR="$baseprj/projects"
+export PKG_DIR="$baseprj/packages"
+export SRC_DIR="$baseprj/sources"
+export SCR_DIR="$baseprj/scripts"
+export BKS_DIR="$baseprj/backups"
+#
+#  project specific directories
+#
+export CUSTOM_DIR="custom"
+export PRJ_MNT="mnt"
+#
+# PWL System Files used in all projects
+#
+HELP_FILE=./$basedir/README.pwlconfig
+PRJ_LAST=$PRJ_DIR/.last.project
+CUSTOM_LST=custom.list
+CUSTOM_SRC=custom.src
+DEFAULT_CFG=project.defaults
+CFG_Default=project.conf
+#
+#
+# verify utility programs exists
+#
+   if [ ! -f "$DIALOG" ]; then
+      echo Utility program \"lxdialog\" not found
+      echo '( From (RH) /usr/src/linux type make Menuconfig'
+      echo '   then cp /usr/src/linux/scripts/lxdialog/lxdialog to ./bin)'
+      exit 1
+   fi
+   if [ ! -f "$DEV_MGR" ]; then
+      echo Shell script $DEV_MGR not found
+      exit 1
+   fi
+   if [ ! -f "$PWL_CUSTOM" ] ; then
+      echo Shell script $PWL_CUSTOM not found
+      exit 1
+   fi
+   if [ ! -f "$PRJ_DEFAULTS" ] ; then
+      echo Shell script $PRJ_DEFAULTS not found
+   fi
+   if [ ! -f "$HELP_FILE" ] ; then
+      echo Help file $HELP_FILE not found
+   fi
+
+#=============================================================================
+#
+#  Utility functions
+#      set_geometry
+#      get_string
+#      debug_monitor
+#      debug_trace
+#
+# set_geometry - copied almost entirely from Menuconfig
+#
+set_geometry ()
+{
+	# Some distributions export these with incorrect values
+	# which can really screw up some ncurses programs.
+	LINES=  COLUMNS=
+	ROWS=${1:-24}  COLS=${2:-80}
+
+	# Just in case the nasty rlogin bug returns.
+	#
+	[ $ROWS = 0 ] && ROWS=24
+	[ $COLS = 0 ] && COLS=80
+
+	if [ $ROWS -lt 19 -o $COLS -lt 80 ]
+	then
+		echo -e "\n\007Your display is too small to run pwlconfig!"
+		echo "It must be at least 19 lines by 80 columns."
+		exit 0
+	fi
+	export ROWS=$((ROWS-4))
+	export COLS=$((COLS-5))
+}
+
+
+#
+# get_string( title, instructions,  *resultString,  [default_or_prefix] )
+#           - Create a dialog for entering a string
+#           - if a default is supplied, it is shown in the input field
+#           - returns 0 if Ok was pressed (string may be zero length)
+#           - returns 1 if Help was pressed
+#           - returns 255 if cancel or ESC was selected
+function get_string ()
+{
+   answer=""
+   #
+   # Display prompt
+   #
+   if [ "$usrMode" = "C" ] ; then
+      # write prompt to screen
+      echo $1
+      echo ""
+      echo "$2  $4"    # don't put on same line since we can't edit in-line
+      read answer
+      if [ -z "$answer" ] ; then
+         answer=$4     # accept default
+      fi
+      retVal="0"
+   #
+   else
+      # show default if provided
+      if [ -z "$4" ] ; then
+        defStr=""
+      else
+        defStr=$4
+      fi
+      #
+      # show dialog
+      #
+      $DIALOG --title "$1" \
+              --backtitle "$backtitle" \
+              --inputbox "$2" \
+              10 75 "$defStr" 2>.result
+      #
+      # interpret results
+      #
+      retVal=$?
+      if [ "$retVal" = "1" ] ; then   #help requested
+         show_help
+         return 1
+      fi
+      if [ "$retVal" = "0" ] ; then
+         answer="`cat .result`"
+      fi
+      if [ ! -s .result ] ; then  # empty results
+         return 1
+      fi
+   fi
+   # return result
+   eval $3=\"$answer\"
+   return $retVal   # help, esc or cancel entered
+}
+
+#
+# debug_monitor - allows debugging by typing commands and executing
+#                anywhere within your program.
+#                Just hit enter (blank line) to continue with program
+#
+function debug_monitor
+{
+   echo ""
+   echo -n "mon\> "
+   read x
+   while [ ! -z "$x" ] ; do
+      eval $x
+      echo ""
+      echo -n "mon\> "
+      read x
+   done
+}
+
+#
+# debug_trace ( function_to_trace )- trace a shell script function call
+#       NOTE: does not step around loops or multi-line if statements
+#
+#       Each line of the function is displayed, user can ENTER:
+#         y  - execute this line (same as pressing ENTER)
+#         n  - skip this line
+#         m  - execute this line and start the debug monitor
+#         c  - continue executing to the end of the function
+#         x  - exit this function and enter the debug monitor
+#
+function debug_trace
+{
+   # read the function and strip out the brackets
+   #
+   sed -n /"^function $1"/,/'^}'/p $PROGRAM_NAME | sed /^{/d | sed /^}/d > .dtrace
+   shift     # adjust parameters to match parameters for function call
+   #
+   #  show user what function is being traced (and don't execute 'function')
+   #
+   echo `head -1 .dtrace`
+   tail +2 .dtrace | cat > .dtrace
+   #
+   # now display the function, line by line, and handle user input
+   #
+   while [ -s .dtrace ] ; do
+      # extract the next line and remove it from the trace file
+      lineIn="`head -1 .dtrace`"
+      tail +2 .dtrace | cat > .dtrace
+      #
+      # allow user to execute non-blank lines
+      #
+      if [ ! -z "$lineIn" ] ; then
+         echo -n "trace: $lineIn  ([y],n,c,m,x)?"
+         read x
+         if [ "$x" = "x" ] ; then     # quit
+            break
+         elif [ "$x" = "m" ] ; then   # execute this one and enter debugger
+            eval $lineIn
+            debug_monitor
+         elif [ "$x" = "y" ] ; then   # execute this one
+            eval $lineIn
+         elif [ "$x" = ""  ] ; then   # execute this one
+            eval $lineIn
+         elif [ "$x" = "c" ] ; then   # continue executing to end of function
+            eval $lineIn                     # execute this line
+            cat .dtrace                      # show the rest
+            . ./.dtrace                      # and execute 'em
+            break                            # then quit
+         fi
+         # otherwise, skip this line and go to next line
+      fi
+   done
+   $RM .dtrace
+   echo trace done
+   debug_monitor
+}
+
+#
+# debug_mode(new mode) - enable or disable debugging output features
+#
+function debug_mode()
+{
+   debugMode="$1"
+   #
+   # enable/disable debuging macros
+   #
+   if [ $debugMode = "0" ] ; then
+      decho=":"
+      dwait=
+      dmon=
+      dtrace=
+      RM="rm -f"
+   else
+      decho=echo
+      dwait='read x'
+      dmon='debug_monitor'
+      dtrace=debug_trace
+      RM=":"                # don't delete temporary files when debugging
+   fi
+}
+
+#
+
+#
+# show_files ( title,  pack.lst ) - show checklist of files within a package
+#
+function show_files()
+{
+   if [ -z "$filesDefault" ] ; then
+      filesDefault=Add
+   fi
+   echo -n $DIALOG --title "$1" \
+                   --backtitle \"$backtitle\"       \
+                   --menu                           \
+"'Select files to include                           Project: $CFG_BASE'" \
+              $ROWS $COLS $((ROWS-8)) \
+              "'$filesDefault'" > .dialog
+
+   cat $2 >> .dialog
+   . ./.dialog
+}
+
+#
+# show_results ( file, title )  - display results file
+#
+function show_results ()
+{
+   if [ -f "$1" ] && [ "$usrMode" = "I" ] ; then
+      cp $1 .show_result
+      if [ -z "$2" ] ; then
+         resTitle="Results"
+      else
+         shift
+         resTitle="$*"
+      fi
+      #
+      # -- lxdialog / text box has a few bugs
+      #    ...if you page down in a 2+ page file, the
+      #    dialog is not properly cleared..use arrow keys to view
+      #    to the end of the file.
+      #    ...if you don't have the file in the calling directory, the
+      #    terminal never clears properly
+      #
+      $DIALOG --title "$resTitle"        \
+              --backtitle "$backtitle"  \
+              --textbox .show_result $ROWS $COLS
+      $RM  .show_result
+   fi
+}
+
+#
+# show_message ( title, message [,height] ) - display a short message
+#
+function show_message ()
+{
+   if [ ! "$usrMode" = "I" ] ; then
+      echo ""
+      echo $1
+      echo $2
+      return
+   fi
+   height=7
+   if [ ! -z "$3" ] && [ $3 -lt "$ROWS" ] && [ $3 -gt 7 ] ; then
+            height="$3"
+   fi
+   #
+   echo "$2" > .result
+   $DIALOG --backtitle "$backtitle" --title "$1"\
+           --msgbox "$2" $height $((COLS-20))
+
+   # --msgbox is undocumented feature of lxdialog (see the source vs help)
+   # but wraps text lines nicely
+}
+
+#
+# show_help( context help file, menu_help file, ...,  file help delimiter)
+#     - shows individual help screens, menu help description or defaults
+#       to display the predefined HELP_FILE file.
+#       Help files are delimited by "filename"...END, which must start
+#       on the first column of the file.
+#
+function show_help ()
+{
+   $decho "start show_help $*"
+   rm -f .result
+   #
+   # check for special file (xxx.README) help description
+   #
+   argc=$#
+   let "argc = argc - 1"
+   echo -n "" > .result
+   while [ $argc -gt 0  ]; do
+      if [ -f "$1" ] ; then
+         #
+         # scan file for help messages
+         #
+         helpFn=$1
+         helpTitle=`basename $1`
+         sed -n /$helpTitle/,/^END/p $helpFn | grep -v "^$helpTitle" | grep -v "^END" > .result
+         #
+      fi
+      shift
+      let "argc = argc - 1"
+      #
+      # may be a valid file name with no valid help
+      #
+      if [ -s .result ] ; then
+         break                 # found it, help is on the way
+
+      fi
+   done
+   #
+   # if thats no help, check for menu description from HELP_FILE
+   #
+   if [ ! -s .result ] ; then
+      #
+      #  all parameters scanned, last one is string to search for from
+      #  global help file
+      #
+      if [ "$1" != "" ] && [ -f $HELP_FILE ] ; then
+         helpFn=$HELP_FILE
+         helpTitle="$1"
+         sed -n /$1/,/^END/p $helpFn | grep -v "^$1" | grep -v "^END" > .result
+      fi
+   fi
+   #
+   # if still no help, show the overview or display error message
+   #
+   if [ ! -s .result ] ; then
+      if [ -f $HELP_FILE ] ; then
+         helpFn=$HELP_FILE
+         helpTitle="pwlconfig"
+         cp $helpFn .result
+      else                               # now we are helpless
+         helpTitle="Pwlconfig Help file not found !"
+         echo "No help available. Could not find $HELP_FILE" > .result
+      fi
+   fi
+   #
+   # now show help
+   #
+   show_results .result "Help for: $helpTitle"
+   #
+   $decho "end show_help"
+}
+
+
+#
+# show_confirm ( title, message [,height] ) - display a short message
+#                                      with yes/no response buttons
+#
+#    returns 0 = 'Y'  1 for 'N' or 255 for 'Esc'
+#
+function show_confirm ()
+{
+   if [ ! "$usrMode" = "I" ] ; then
+      return 0                     # default to Yes
+   fi
+   height=7
+   if [ ! -z "$3" ] && [ $3 -lt "$ROWS" ] && [ $3 -gt 7 ] ; then
+            height="$3"
+   fi
+   #
+   $DIALOG --backtitle "$backtitle" --title "$1"\
+           --yesno "$2" $height  $((COLS-20))
+}
+
+
+#
+# dir_tree_list_all( dir_root, [ resultsFile ] )
+#         - builds a list of all files found in the given dir_root
+#
+function dir_tree_list_all()
+{
+   loc=$PWD
+   cd $1
+   #
+   # list files, remove file size and leading dot, remove blank lines
+   #     remove leading / also
+   #
+   du . -a | cut -f2 | cut -d. -f2- | sed /^$/d | sort -u | sed "s/^\/*//g" > $loc/.result
+   #
+   cd $loc
+   #
+   # update to given file if specified
+   #
+   if [ ! -z "$2" ] ; then
+      cp $loc/.result $2
+   fi
+}
+
+
+#
+# tar_files_list_all( dir_root, tar_list_file [ results_file] )
+#        - builds a list of all files stored in every tar file list file
+#              specified in tar_list
+#          list is formatted as:  source_tar_file  filename
+#
+function tar_files_list_all()
+{
+   echo "" > .result
+   #
+   for listFn in `cat $2`; do
+      tarBn=`basename $listFn .list`
+      tarDir=`dirname $listFn`
+      #
+      # build 'source_tar_file  filename'
+      #
+      if [ -f $1/$listFn ]; then
+         # I don't think this works! directories contain special chars
+         #
+         sed 's/^/$tarDir\/$tarBn /g' $1/$listFn >> .result
+      fi
+   done
+   if [ ! -z "$3" ] ; then
+      cp .result $3
+   fi
+}
+
+#=========
+#
+# Confirm and Save
+#
+function confirm_save ()
+{
+   $decho "start confirm_save"
+   #
+   # don't question user if temporary configurations are identical to existing
+   #  configurations
+   #
+   cmp -s $CFG_FILE_TMP $CFG_FILE
+   if [ "$?" = "0" ] ; then
+      $decho "same $CFG_FILE"
+      rm -f $CFG_FILE_TMP
+   fi
+   cmp -s $DFT_FILE_TMP $DFT_FILE
+   if [ "$?" = "0" ] ; then
+      $decho "same $DFT_FILE"
+      rm -f $DFT_FILE_TMP
+   fi
+   $PWL_PKGCONF --save CHECK
+   if [ "$?" = "0"  -a ! -f "$CFG_FILE_TMP" -a ! -f "$DFT_FILE_TMP" ] ; then
+      $decho "No changes made, nothing saved"
+      return
+   fi
+   #
+   # question the user
+   #
+   show_confirm "Save configuration for project" \
+          "Do you wish to save your new configuration for project \"$CFG_BASE\" ?"
+   if [ $? = "1" ] || [ $? = "255" ]; then
+      $decho "No Configuation files have been harmed..."
+      return
+   fi
+   #
+   #
+   $decho "Saving Project configuration"
+   $PWL_PROJECTS --save
+   #
+   $decho "Saving package configuration"
+   $PWL_PKGCONF --save
+   #
+   $decho "save project defaults"
+   $PRJ_DEFAULTS --save
+   #
+   $decho "end save"
+}
+
+#
+# usage( [ error message ] )
+#    prints the given error message or a help screen parsed from this file
+#    (help screen is delimited by "###" at the start of a line)
+#    Program name and version can be specified in progInfo parameter.
+#
+function usage()
+{
+   if [ "$progInfo" != "" ] ; then
+      echo -e "\n$progInfo"
+   fi
+   #
+   # show error message ( if any)
+   if [ ! "$1" = "" ] ; then
+      echo -e "Error: $* \n"
+      exit 1
+   fi
+   #
+   # show usage as parsed from currently executing script
+   #
+   sed -n /^###$/,/^###$/p $0 | sed s/^#*//g
+   #
+   # exit nicely
+   #
+   exit 0
+}
+
+#
+# default_define - parse defaults file and set variables
+#
+function default_define()
+{
+   $decho "start default_define"
+   status=0
+   #
+   # simply execute the temporary defaults file
+   #
+   if [ -f "$DFT_FILE_TMP" ] ; then
+      . ./$DFT_FILE_TMP
+   elif [ -f "$PWL_PRJ/$DEFAULT_CFG" ] ; then
+      . ./"$PWL_PRJ/$DEFAULT_CFG"
+   else
+      $decho "default not found"
+      status=1
+   fi
+   #
+   $decho "end default_define"
+   return $status
+}
+
+#
+# pwl_init_project( [ projectName ] ) - sets global variables for given project
+#
+function pwl_init_project()
+{
+   $decho "start pwl_init_project"
+   usrName=`$WHOAMI`
+   if  [ "$usrName" != "root" ] ; then
+      usage "Please Login as root user to access projects"
+      return 1
+   fi
+   #
+   if [ "$1" = "" ] ; then
+      #
+      # get last default project
+      #
+      if [ ! -f "$PRJ_LAST" ] ; then
+         usage "No Project"
+      fi
+      . ./$PRJ_LAST
+   else
+      #
+      # parameter given is the Project name
+      #
+      export CFG_BASE=$1
+   fi
+   #
+   # reset these variables for new project directory
+   #
+   export PWL_PRJ="$PRJ_DIR"/"$CFG_BASE"
+   export CFG_FILE="$PWL_PRJ"/"$CFG_Default"
+   export CFG_FILE_TMP="$PWL_PRJ"/."$CFG_Default"
+   export DFT_FILE="$PWL_PRJ"/"$DEFAULT_CFG"
+   export DFT_FILE_TMP="$PWL_PRJ"/."$DEFAULT_CFG"
+   #
+   #
+   $decho "end pwl_init_project"
+   return 0
+}
+
+   #
+   # do these - seems like a good idea :-?
+   #
+   set -h +o posix
+   set_geometry `stty size 2>/dev/null`
+

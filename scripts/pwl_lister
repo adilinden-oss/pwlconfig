@@ -1,0 +1,117 @@
+#!/bin/bash
+#
+#  Pee Wee Linux list file handler
+#  use to:
+#     Generate .list from .tar files
+#     Remove   .list files
+#     Find files in .list files
+#     Create package file Index
+#
+# execute this script from Embedded_build or Embedded_Build/scripts
+#
+VER_PWL_LISTER="0.2"
+#
+# Find path to project
+#
+PKG_PATH="packages"
+if [ ! -d $PKG_PATH ] ; then
+   PKG_PATH="../packages"
+fi
+if [ ! -d $PKG_PATH ] ; then
+   echo Packages not found
+   exit
+fi
+#
+# parse parameters - one parameter per invocation
+#
+if [ "$1" = "--help" ] ; then
+   echo -e "\nUsage: `basename $0` [ [--find filename [...] ] | [ --remove ] ]"
+   echo -e "\n   --find           searches all list files for all given filenames"
+   echo -e   "   --remove         deletes all existing list files"
+   echo -e   "   --index [file]   generates one file of all packages and their contents"
+   echo -e   "                    (default is .index.list) as pkg:pkg_file"
+   echo ""
+   echo -e   "   When no parameters are given, generates list files for all tar files"
+   echo -e   "   in the packages directory"
+#
+# Index option - generate one big file of all packages and their files
+#
+elif [ "$1" = "--index" ] ; then
+   #
+   if [ "$2" != "" ] ; then
+      indexFn="$2"
+   else
+      echo -e "Creating .index.list"
+      indexFn=".index.list"
+   fi
+   #
+   # for every package list file, pre-pend list filename to everyline
+   #   delimit sed with ! to allow pathnames
+   #
+   echo -n "" > $indexFn
+   for listFn in `find $PKG_PATH -name "*.list"`; do
+      sed "s!.*!$listFn:&!g" $listFn >> $indexFn
+   done
+#
+# Find option - search all list files
+#
+elif [ "$1" = "--find" ] ; then
+   #
+   # search all files
+   #
+   if [ "$2" = "" ] ; then
+      echo -e "\nUsage: `basename $0` --find filename [... ]"
+      echo -e "\n   Searches all list files for all given filenames"
+      echo -e "   Outputs files not found on Error stream"
+   else
+      #
+      # search all list file in all directories for all filenames given
+      #
+      while [ "$2" != "" ] ; do
+         foundOne=0
+         for lstFn in `find $PKG_PATH -name *.list`; do
+            #
+            if grep -q -i $2 $lstFn ; then
+               foundOne=1
+               #
+               # search for all instances of filename in this list file
+               #
+               for foundFn in `grep -i $2 $lstFn` ; do
+                   #
+                   # generate parsable printout
+                   #
+                   echo "$lstFn:$foundFn"
+               done
+            fi
+         done
+         if [ $foundOne = "0" ] ; then
+            # error stream, requested filename not found
+            echo "not found $2" >&2
+         fi
+         shift  # get next filename to search for
+      done
+   fi
+
+elif [ "$1" = "--remove" ] ; then
+   #
+   #  remove existing list files
+   #
+   for lstFn in `find $PKG_PATH -name *.list`; do
+      #
+      echo Removing file $lstFn
+      rm -f $lstFn
+   done
+#
+else
+   # build list files from tar files
+   #
+   for tarFn in `find $PKG_PATH -name *.tar` ; do
+      lstPath=`dirname $tarFn`
+      lstFn=$lstPath/`basename $tarFn .tar`".list"
+      #
+      echo "Processing.... $lstFn"
+      tar tf $tarFn > $lstFn
+   done
+fi
+
+#

@@ -1,0 +1,630 @@
+#!/bin/bash
+#
+###
+# Usage: pwl_update [ cmd [ parmeters ] ... ]
+#
+#   pwl_update
+#
+#   "cmd"    "parameters"      Results
+#   --help                     This help screen
+#   --project project Name     Select project (default is last one used)
+#   --init                     Initializes update parameters from defaults
+#   --time                     compare files by timestamp
+#   --prompt                   Prompts for every file
+#   --prompt <dir name>        Prompts to update entire directories
+#
+# Where:
+#    project Name is the name of a current PWL project
+#
+###
+#
+# History:
+#   v0.86 - some bug fixes, BIG BUG LEFT: files "removed" from reference
+#            aren't handled properly!
+#   v0.85 - added full help message
+#   v0.1 - created
+#
+# Comments:
+#
+######
+#pwl_update.README
+#
+#   Pwl_update allows you to create or update a Pee Wee Linux
+#   project from another "reference" file system.  How you use this
+#   will depend on your situation. To update a Project, decide
+#   which one of the following applies:
+#
+#     1. I have a new release of Pee Wee Linux packages...
+#        Let pwl_update determine your configuration based on
+#        the files in your existing project.
+#
+#     2. I have a working device...
+#        Use a device loaded from previous configuration or
+#        built through another (manual) process or third party,
+#        to update your project.
+#
+#     3. I have a directory full of files...
+#        Use all the files in a directory to update
+#        your project.
+#
+#     4. I have a list of files...
+#        Use a list of files, created by "ls -lR", to update
+#        your project.
+#
+#  You can also set parameters for the comparision which may
+#  be applied:
+#
+#     [] File Timestamps must match (if known)
+#        Compares files and their time stamp if selected
+#
+#     [] Prompt for all Changes
+#        Determines how much prompting you will have to endure.
+#
+#     [] Check packages for new files
+#        New files found (on your device or in your directory
+#        or in your file list) that are not part of your current
+#        configuration, will be copied from any available
+#        package file.
+#
+#     [] Test only - do not change my configuration
+#        Just lists the results of what would happen, chicken.
+#
+#   1. I have a new release of Pee Wee Linux packages...
+#      Choose Menu option:
+#
+#        Update Configuration for New Packages
+#
+#      Anytime you add or changes your Pee Wee Linux packages.
+#      Your current configuration is "backed up" and rebuilt to
+#      match the contents and location of all current packages.
+#
+#      This option always checks the "Check package" parameter,
+#      since thats what we are doing.  It may be best
+#      to copy your project, update it then verify it before
+#      you allow your project to be 'overwritten'.
+#
+#   2. I have a working device...
+#      If this device is accessible from pwlconfig (mounted or
+#      smbmounted(?)) you can quickly update your project to
+#      match the device. Choose menu option:
+#
+#         Update From <device name>-->
+#
+#      where the device name is the device assigned to your
+#      project (see Manage Projects/Project Defaults).
+#
+#   3. I have a directory full of files...
+#      Choose menu option:
+#
+#        Update From File System-->
+#
+#      and you will be prompted for the root of the directory
+#      tree.
+#
+#   4. I have a list of files...
+#      Choose menu option:
+#
+#        Update from ls -lR File List -->
+#
+#      and you will be prompted for the name of the list file.
+#
+#   For each of these last three options, you will be shown a
+#   list of the root directories.  You can Include / Exclude any
+#   of these you want to compare or ignore. For best results,
+#   ignore the "var", "tmp" and "dev" directories.
+#
+#   (System might lock up if you try to compare a root directory
+#   that is linked to another root directory! i.e. local->/)
+#
+#   To begin the update, select menu option: "Begin Update-->"
+#
+# Update Processing
+#
+#   pwl_update will compare two file systems: the file system
+#   created by extracting your current configuration and
+#   the reference file system. The reference file system can
+#   be either on your device or directory or from your file list
+#   as you selected previously.
+#
+#   Several situations can occur when comparing files between
+#   two file systems:
+#      1. files match, no changes
+#      2. reference files are newer
+#         these were "touched" or changed. If the reference
+#         file originally came from a package, that file is
+#         no longer extracted from the package.  Instead, the
+#         "newer" reference file is copied to your custom files.
+#      3. reference file not found in configuration
+#         Check packages to see if we can extract from a
+#         a package
+#      4. reference file not in configuration or package file
+#         Add to configuration, if file exists on device or
+#         file system, add as one of your custom files.
+#
+#   After running this update operation when you next extract
+#   your project files, they should be exactly like the
+#   file system on your device!
+#
+#END
+######
+#
+#=============================================================================
+#
+# include generally handy functions
+#
+if [ -f "./scripts/pwl_functions" ] ; then
+  . ./scripts/pwl_functions
+elif [ -f "./pwl_functions" ] ; then
+  . ./pwl_functions
+else
+  echo "script pwl_functions not found"
+fi
+#
+PWL_UPDATE_VER=${PWL_REL_VER}".1"
+#
+# TESTING: include configuration changing functions
+#          should be in this file ??
+#
+. ./scripts/pwl_cfgchg
+#
+#=============================================================================
+#
+# show_pwl_update ( select.lst ) - show checklist of items
+#
+function show_pwl_update()
+{
+   if [ -z "$pwl_updateDefault" ] ; then
+      pwl_updateDefault=Add
+   fi
+   echo -n $DIALOG --title "'Update From File System'" \
+                   --backtitle "'$backtitle'"      \
+                   --menu                          \
+"'Select Parameter or Start an update              Project: $CFG_BASE'" \
+              $ROWS $COLS $((ROWS-8))                                   \
+             "'$pwl_updateDefault'" > .dialog
+
+   cat $1 >> .dialog
+   . ./.dialog
+}
+
+#
+#
+#
+function build_update_start()
+{
+   $decho "start build_update_start"
+   #
+   echo -n "" > $1
+   if [ "$udTest" = "1" ] ; then
+      echo -n " 'Update'   'Begin Update (Test only)' "   >> $1
+   else
+      echo -n " 'Update'   'Begin Update' "               >> $1
+   fi
+   echo -n " 'skip'     '------' "                        >> $1
+   echo -n " 'Include' 'Include all root Directories ' "  >> $1
+   echo -n " 'Exclude' 'Exclude all root Directories ' "  >> $1
+   #
+   # list root directories, enable and disable as defined
+   #
+   for rootFn in `cat .root.lst` ;
+   do
+      rootChk=${rootFn%%+*}  # handle filenames with '+' in them
+      rootChk=${rootChk%%-*} # handle filenames with '-' in them
+      if [ "$(( $rootChk ))" = "1" ] ; then
+         echo -n " '$rootChk' '[*] Including Directory: $rootFn' " >>$1
+      else
+         echo -n " '$rootChk' '[ ] Excluding Directory: $rootFn' " >>$1
+      fi
+   done
+   $decho "end build_update_start"
+}
+#
+# build_pwl_update - create list of project operations and projects to choose from
+#
+function build_pwl_update ()
+{
+   $decho "start build_pwl_update"
+   #
+   # insert command operations in menu
+   #
+   echo -n "" > $1
+   echo -n " 'fsCfg'    'Update Configuration for New Packages-->'   " >> $1
+   echo -n " 'devMnt'   'Update From $deviceName at $deviceLoc$devicePartition -->'  " >> $1
+   echo -n " 'fsMnt'    'Update From Directory -->' " >> $1
+#   echo -n " 'fsList'   'Update From ls -lR File List -->'   " >> $1
+   echo -n " 'skip'     '------' "                       >> $1
+   #
+   # build options for all variables
+   #
+#   echo -n " 'udTime'  '[${udTime:+"*"}] File Timestamps must match (if known)' "              >> $1
+   echo -n " 'udPkg'   '[${udPkg:+"*"}] Check Packages for new files' "        >> $1
+   echo -n " 'udFnPr'  '[${udFnPr:+"*"}] Prompt to Choose Packages' "                    >> $1
+   echo -n " 'udTest'  '[${udTest:+"*"}] Test only - do not change my configuration' "  >> $1
+   #
+   $decho "end build_pwl_update"
+}
+
+#
+# pwl_update_init( [ mountPoint ] )
+#
+function pwl_update_init()
+{
+   $decho "start pwl_update_init $*"
+   #
+   # init stuff
+   #
+   pwl_init_project
+   default_define          # set global variables for project defaults
+   #
+   if [ "$1" = "" ] ; then
+      updateMnt="$deviceMnt"      # set a default mount point
+   else
+      updateMnt=$1
+   fi
+   #
+   $decho "end pwl_update_init"
+}
+
+
+#=============================================================================
+#
+# update_get_file_list
+#
+function update_get_file_list()
+{
+   get_string "Update Project $CFG_BASE" \
+                 "Enter path and name of files list (ls -lR list):" \
+                 "newFileLst" $newFileLst
+   if [ $? != "0" ] ; then
+      return 1
+   fi
+   if [ -z "$newFileLst" ] || [ ! -f "$newFileLst" ] ; then
+      show_message "Files List Not Found" \
+                   "Files List not found: $newFileLst"
+      return 1
+   fi
+   #
+   return 0
+}
+
+#
+# update_get_mount
+#
+function update_get_mount()
+{
+   $decho "start update_get_mount"
+   #
+   # prompt for Mounted file system to compare against
+   #
+   newMntName=$1
+   get_string "Update Project $CFG_BASE" \
+                 "Enter path and name of mount point:" \
+                 "newMntName" "$newMntName"
+   if [ $? != "0" ] ; then
+      return 1
+   fi
+   if [ -z "$newMntName" ] || [ ! -d "$newMntName" ] ; then
+      show_confirm "Mount Point Not Found" \
+                   "Mounted Point not found at $newMntName - Create it?"
+      if [ $? != "0" ] ; then
+         return 1            # let user specify another mount point
+      fi
+      mkdir -p $newMntName
+   fi
+   # change to new mount point given
+   #
+   updateMnt=$newMntName
+   #
+   $decho "end update_get_mount"
+   return 0
+}
+
+#
+# update_mount_device( mntPt [, DEV_MOUNT] )
+#
+function update_mount_device()
+{
+   $decho "start update_set_mount"
+   #
+   # mount device for root dir listings
+   #
+   mntPath=$updateMnt
+   $DEV_MGR $deviceType --device $deviceLoc --dev-id $devicePartition --mount $mntPath -m
+   status=$?
+   if [ $status = "1" ] ; then
+      echo Device $deviceName not found in system
+   fi
+   #
+   $decho "done updat_set_mount"
+   return $status
+}
+
+#
+# update_all_dirs
+#     includes or excludes all directories in the root path
+#
+function update_all_dirs()
+{
+   if [ "$1" = "Include" ] ; then
+      newVal=1
+   else
+      newVal=
+   fi
+   for rootFn in `cat .root.lst` ;
+   do
+      rootChk=${rootFn%%+*}   # handle filenames with '+' in them
+      rootChk=${rootChk%%-*}  # handle filenames with '-' in them
+      eval $rootChk=$newVal
+   done
+}
+
+#
+# make_root_list - list root directorys to allow compare selection
+#
+function make_root_list()
+{
+   $decho "start make_root_list"
+   #
+   echo -n "" > .root.lst
+   #
+   # get a list of all visible directories in root
+   #
+   if [ "$fsType" = "FS_LIST" ] ; then
+      #
+      # parse root files from list file - get directories listed
+      #  - find line number of end of root files (first blank line in file)
+      #  - get directories from these first 'n' lines
+      #
+      topDir="`grep -n "^$" $newFileLst | head -1 `"
+      topDir=${topDir%%:}
+      head -$topDir $newFileLst | grep "^d" > .tmp.lst
+      #
+      # get names from end of each line
+      #
+      gawk -F" " '{print $9}' .tmp.lst > .root.lst
+      #
+   elif [ -d "$updateMnt" ] ; then
+      loc=$PWD
+      cd $updateMnt
+      find . -type d -maxdepth 1 -printf "%f\n" | grep -v "^\." > $loc/.tmp.lst
+      #
+      # list links to ensure they are selectable
+      #
+      find . -type l -maxdepth 1 -printf "%f\n"  >> $loc/.tmp.lst
+      cd $loc
+      sort -u .tmp.lst > .root.lst
+   fi
+   #
+   $decho "end make_root_list"
+}
+
+#
+# menu_update_start - select root directories to compare and
+#                     start the comparison
+#
+function menu_update_start()
+{
+   $decho "start menu_update_start"
+   updateDone=0
+   #
+   # If there are any temporary config files hanging around, save them now
+   #
+   confirm_save
+   #
+   # build list of selectable root directories
+   #
+   make_root_list
+   #
+   while [ "$updateDone" = "0" ]; do
+      #
+      #  build list of commands and parameters
+      #
+      build_update_start .select.lst
+      #
+      show_pwl_update .select.lst 2>.result
+
+      retVal=$?
+      read selection <.result
+      pwl_updateDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            updateDone=1
+           ;;
+         2)                          # help
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_update.README
+            #
+            show_help pwl_update.README menu_update
+           ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           #
+           case "$selection" in
+             "Update")                # operation "Update"
+                TEST_ONLY=${udTest:+":"}
+                cmd_update_configuration
+                ;;
+             "Include"|"Exclude")
+                update_all_dirs $selection
+                ;;
+
+             "skip")
+                xx=1 # do nothing
+                ;;
+
+             *)
+                #
+                # toggle directories selected
+                #
+                if [ "$(( $selection ))" = "1" ] ; then
+                   eval $selection=
+                else
+                   eval $selection="1"
+                fi
+
+                ;;
+           esac       # end select item
+           ;;
+       esac    # end dialog response
+
+   done    # end while configuring
+
+   #
+   # return clean
+   #
+   $RM .select.lst .result .dialog  .show_result pwl_update.README
+   $decho "end menu_update_start"
+   return 0
+}
+
+#
+#
+# menu_pwl_update - set parameters and execute update process
+#
+function menu_pwl_update()
+{
+   $decho "start menu_pwl_update"
+   pwl_updateDone=0
+   #
+   while [ "$pwl_updateDone" = "0" ]; do
+      #
+      #  build list of commands and parameters
+      #
+      build_pwl_update .select.lst
+      #
+      show_pwl_update .select.lst 2>.result
+
+      retVal=$?
+      read selection <.result
+      pwl_updateDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            pwl_updateDone=1
+           ;;
+         2)                          # help
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_update.README
+            #
+            show_help pwl_update.README menu_update
+           ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           #
+           case "$selection" in
+             "fsCfg")
+                TEST_ONLY=${udTest:+":"}
+                cmd_update_from_packages
+                ;;
+             "devMnt")                        # update from a device
+                fsType=FS_DEVICE
+                if update_get_mount  $updateMnt ; then
+                   if update_mount_device ; then
+                      menu_update_start
+                   fi
+                fi
+                ;;
+             "fsMnt")                         # update from mounted directory
+                fsType=FS_DIR
+                if update_get_mount  $updateMnt ; then
+                   menu_update_start
+                fi
+                ;;
+             "fsList")                        # update based on file list
+                fsType=FS_LIST
+                if update_get_file_list ; then
+                   menu_update_start
+                fi
+                ;;
+             "skip")
+                xx=1 # do nothing
+                ;;
+
+             ## "udTime"|"udPkg"|"udFnPr"|"udTest")
+             *)
+                #
+                # toggle parameter selected
+                #
+                if [ "$(( $selection ))" = "1" ] ; then
+                   eval $selection=
+                else
+                   eval $selection="1"
+                fi
+
+                ;;
+           esac       # end select item
+           ;;
+       esac    # end dialog response
+
+   done    # end while configuring
+
+   #
+   # return clean
+   #
+   $RM  .select.lst .result .dialog  .show_result pwl_update.README
+   $decho "end menu_pwl_update"
+   return 0
+}
+
+#=============================================================================
+#
+# update_main - parse command line
+#
+function pwl_update_main()
+{
+   progInfo="`basename $0` - Version $PWL_UPDATE_VER"
+   if [ "$backtitle" = "" ] ; then
+      backtitle=$progInfo
+   fi
+   pwl_update_init
+   #
+   # parse command line and execute commands or do interactive
+   #
+   gotOne=0
+   while [ "$1" != "" ] ; do
+      $decho "parse $*"
+      case "$1" in
+         "--help")                   #--help
+            usage
+            ;;
+         "--project")                #--project - assign current project
+            pwl_init_project $2
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         "--init")                   #--init
+            pwl_update_init $2
+            gotOne=1
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         *) usage "Invalid command $*"
+            ;;
+      esac
+      shift
+   done
+   #
+   # do interactive operation
+   #
+   if [ $gotOne = "0" ] ; then
+      #
+      usrMode="I"      # enable interactive mode
+      menu_pwl_update
+   fi
+}
+
+# start here
+  debug_mode 0         # set to 1 to enable debug macros
+
+  $decho "START $0"
+
+  pwl_update_main $*
+
+  $decho "END $0"
+
+# exit 0  - don't do an exit, other scripts can call this script
+#
+# end
+#
+

@@ -20,7 +20,7 @@ cd ../../
 tar czpf embedded-${1}-src.tar.gz Embedded_Build
 
 tar czpf embedded-${1}-bin.tar.gz Embedded_Build \
-    --exclude extracted_src \
+    --exclude build_pwl \
     --exclude sources 
 
 exit 0

@@ -1,146 +1,206 @@
 #! /bin/bash
 #
 ###
-#  pwl_custom  cmd  [srcDirFn [ custDirFn ]]
+# Usage: pwl_custom  cmd  [srcDirFn [ custDirFn ]]
 #
-#         Performs maintence on Pee Wee Linux custom configuration
-#         files using.
+#       Performs maintenance on Pee Wee Linux custom configuration
+#       files using. Works from command line or interactively.
 #
-# Usage
-#   "Cmd"   parameters   - does this
-#   Source  source, dest - specify an original source file and add it
-#   Add     source, dest - add a copy of source file
-#   Delete  source       - remove a file from the custom configuration
-#   Extract destMountPt  - extract all custom files to given mount point
-#   Toggle  source       - include or exclude source from custom configuration
-#   Update               - verify files against custom sources
-#   init                 - verify custom files are initialized
+#   "cmd"     "parameters"     Results
+#   --source  source, dest   specify an original source file and add it
+#   --add     source, dest   add a copy of source file
+#   --delete  source         remove a file from the custom configuration
+#   --extract destMountPt    extract all custom files to given mount point
+#   --toggle  source         include or exclude source from custom configuration
+#   --update                 verify files against custom sources
+#   --save                   save temporary custom configuration
+#   --init                   verify custom files are initialized
+#   --help                   this help screen
+#   --project project name   use this project (default is last project)
 #
 # Notes:
-#   export PWL_PRJ to name of current project (ie. project/projectname)
-#   "source" and "dest" can be files or directories
 #
+#   "source" and "dest" can be files or directories
 ###
 #
 # History:
+#   V0.85 - changed to ensure leading "/" not included (just like tar lists)
+#   V0.84 - additional parameter testing for adding source files
+#   V0.5 - sort source files to remove duplicates
+#   v0.4 - changed commands to match other pwl scripts, added menus
+#   v0.3 - removed duplicate functions, include from pwl_functions
+#   v0.2 - speed up custom refresh, support symbolic link source files
 #   v0.1 - created
 #
-# Make sure we're really running bash.
+# Comments
+#   The custom configuration contains a list of files stored in the
+#   project "custom" directory.  These files are seperate from packaged
+#   files and overwrite any package files of the same name.
+#   The following global variables must be set in external envrionment
 #
-[ -z "$BASH" ] && { echo "$0 requires bash" 1>&2; exit 1; }
+#     PWL_PRJ - assigned name of the project to work with
+#     usrMode   - set to "I" for interactive mode (uses dialogs)
+#     when usrMode is "I", globals required are:
+#     DIALOG    - set to name of dialog program
+#     backtitle - set to program name and version
 #
-# directory containing custom files
+######
+#pwl_custom.README
 #
-CUSTOM_DIR=custom
+# Custom files are added to your file system to support your unique
+# hardware or environment.
 #
-# custom configuration files
+# For example, if you have a network device that must be included as
+# a module, just "Add" the device driver module file to your Custom Files.
 #
-CUSTOM_LST=custom.list
-CUSTOM_SRC=custom.src
+# When you add a custom file, you specify a source and destination.
+# If the source file gets updated, you will be prompted to upgrade
+# the destination file in your project.
 #
-# global variable - must be set in external envrionment
+# If the source file gets deleted, you still have a copy of it in
+# your project.
 #
-# PWL_PRJ - assigned name of the project to work with
-# debugMode - set to enable extra debug output
-# usrMode   - set to "I" for interactive mode (uses dialogs)
-#    when usrMode is "I", globals required are:
-#    DIALOG    - set to name of dialog program
-#    backtitle - set to program name and version
+#    Shortcut:  Press 'Esc' at any prompt to return to the
+#               "Configure Custom Files menu with no changes"
+#
+#    Shortcut:  You can enter a directory name and every file
+#               in that directory will be added as a custom file
+#
+#    Shortcut:  Use pwl_custom --help to see command line options
+#               that let you modify your custom files programatically.
+#
+# "Add custom files to ..."
+#
+#    First you will be prompted to specify the "entire" path and name
+#    of the custom file to add to your file system:
+#
+#       /home/joe_user/network/br549.o
+#
+#    If this 'source' file is found, you will be prompted to specify
+#    the 'destination' file. Again, enter the "entire" path and name of
+#    the final location for the file (where it will appear in the final
+#    file system).  This path must start with '/', the root of the file
+#    system being built:
+#
+#       /lib/modules/2.2-12-20/net/br549-v3.o
+#
+#    If this file alread exists in your project you will be prompted
+#    to overwrite it.  If you overwrite it, the source will be the new
+#    source path and name you just entered.
+#
+# "Delete custom files from ..."
+#
+#    If you no longer need a custom file, you can delete it from your
+#    project.  Enter the name of the file you want to delete as it
+#    appears in your project:
+#
+#       /lib/modules/2.2.12-20/net/br549-v3.o
+#
+#    You will be prompted if you really really want to delete this.
+#
+#    If you specify a directory, that directory and all files contained
+#    within it will be deleted.
+#
+#    Deleting a custom file will not touch the source file.
+#
+#    Shortcut:  If you 'select' a custom file from the menu, then
+#               choose 'Delete',the custom file name is displayed
+#               by default, saving you all that typing.
 #
 #
-# utility functions should be "included" not copied...
+# "Include all custom files"
+# "Exclude all custom files"
 #
-#=========
+#     Select these menu items to globally enable or disable all
+#     custom files added to your project.
 #
-# usage( [ error message ] )
-#    prints the given error message or a help screen parsed from this file
-#    (help screen is delimited by "###" at the start of a line)
+#     Once included or excluded, you can toggle each individual
+#     file to further optimize your file system configuration.
 #
-function usage()
+#END
+######
+#=============================================================================
+#
+# include generally handy functions
+#
+if [ -f "./scripts/pwl_functions" ] ; then
+  . ./scripts/pwl_functions
+elif [ -f "./pwl_functions" ] ; then
+  . ./pwl_functions
+else
+  echo "script pwl_functions not found"
+fi
+#
+PWL_CUSTOM_VER=${PWL_REL_VER}".1"
+#
+#=============================================================================
+#
+#  build_custom - maintain a list of custom files to be included in project
+#
+function build_custom ()
 {
+   $decho "start build_custom"
    #
-   # show error message ( if any)
-   if [ ! "$1" = "" ] ; then
-      echo -e "\nError: $* \n"
-   fi
+   # always insert Add  operation in menu
    #
-   # show usage as parsed from this file
+   echo -n " 'Define' 'Add custom files to \"$CFG_BASE\" -->'  " > $1
    #
-   echo -e $progInfo
-   sed -n /^###/,/^###/p $0 | sed s/^#*//g
+   # list all custom files currently found in custom directory
    #
-   # exit nicely
-   #
-   exit 0
-}
-
-#
-# show_message ( title, message [,height] ) - display a short message
-#
-function show_message ()
-{
-   if [ ! "$usrMode" = "I" ] ; then
-      echo ""
-      echo $1
-      echo $2
+   dir_tree_list_all "$PWL_PRJ/$CUSTOM_DIR"
+   if [ ! -s .result ] && [ ! -s "$PWL_PRJ/$CUSTOM_LST" ]; then
+      # no custom files found
       return
    fi
-   height=7
-   if [ ! -z "$3" ] && [ $3 -lt "$ROWS" ] && [ $3 -gt 7 ] ; then
-            height="$3"
-   fi
    #
-   echo "$2" > .result
-   $DIALOG --backtitle "$backtitle" --title "$1"\
-           --msgbox "$2" $height $((COLS-20))
+   # custom files found, insert operations
+   #
+   echo -n " 'Delete' 'Delete custom files from \"$CFG_BASE\" -->' " >> $1
+   echo -n " 'Skip'   '----' " >> $1
+   echo -n " 'Add'    'Include all custom files' " >> $1
+   echo -n " 'Remove' 'Exclude all custom files' " >> $1
+   #
+   #  show all files listed, flag'em if they are on the list
+   #
+   totalSz=0
+   for customFn in $(cat .result); do
+      #
+      echo -n "."   # show user we are doing something
+      if [ ! -z "$customFn" ] ; then
+         #
+         # don't show or add directory size
+         #
+         if [ ! -d "$PWL_PRJ/$CUSTOM_DIR"/"$customFn" ] ; then
+            fileSz=`du -bs "$PWL_PRJ/$CUSTOM_DIR"/"$customFn" | cut -f1`
+         else
+            fileSz=0
+         fi
+         #
+         # flag 'em if we got 'em - must be exact End Of Line match
+         #
+         if grep -q $customFn$ "$PWL_PRJ/.$CUSTOM_LST" ; then
+            echo -n " '$customFn' '[*] $customFn " >> $1
+            totalSz=`expr $totalSz + $fileSz`
+         else
+            echo -n " '$customFn' '[ ] $customFn" >> $1
+         fi
+         #
+         # show size if not zero
+         #
+         if [ $fileSz -gt 0 ] ; then
+            echo -n "  $fileSz" >> $1
+         fi
+         echo -n "' " >> $1
+      fi
+      #
+   done
+   #
+   echo -n " 'Total' 'Estimated total bytes for selected files: $totalSz' " >> $1
 
-   # --msgbox is undocumented feature of lxdialog (see the source vs help)
-   # but wraps text lines nicely
+   $decho "end build_custom"
 }
 
-#
-# show_confirm ( title, message [,height] ) - display a short message
-#                                      with yes/no response buttons
-#
-#    returns 0 = 'Y'  1 for 'N' or 255 for 'Esc'
-#
-function show_confirm ()
-{
-   if [ ! "$usrMode" = "I" ] ; then
-      return 0                     # default to Yes
-   fi
-   height=7
-   if [ ! -z "$3" ] && [ $3 -lt "$ROWS" ] && [ $3 -gt 7 ] ; then
-            height="$3"
-   fi
-   #
-   $DIALOG --backtitle "$backtitle" --title "$1"\
-           --yesno "$2" $height  $((COLS-20))
-}
-
-
-#
-# dir_tree_list_all( dir_root, [ resultsFile ] )
-#         - builds a list of all files found in the given dir_root
-#
-function dir_tree_list_all()
-{
-   loc=$PWD
-   cd $1
-   #
-   # list files, remove file size and leading dot, remove blank lines
-   #
-   du . -a | cut -f2 | cut -d. -f2- | sed /^$/d | sort -u > $loc/.result
-   #
-   cd $loc
-   #
-   # update to given file if specified
-   #
-   if [ ! -z "$2" ] ; then
-      cp $loc/.result $2
-   fi
-}
-
+#=============================================================================
 #
 # custom_source( srcDirFn, custDirFn )
 #
@@ -162,7 +222,7 @@ function custom_source()
          dir_tree_list_all $srcDirFn
          #
          for srcFn in `cat .result` ; do
-            echo "$srcDirFn$srcFn"="$custDirFn$srcFn" >> "$PWL_PRJ"/"$CUSTOM_SRC"
+            echo "$srcDirFn/$srcFn"="$custDirFn/$srcFn" >> "$PWL_PRJ"/"$CUSTOM_SRC"
          done
       #
       else
@@ -171,16 +231,28 @@ function custom_source()
          $decho "Creating Custom source spec for custom file source $srcDirFn"
          echo "$srcDirFn"="$custDirFn"  >> "$PWL_PRJ"/"$CUSTOM_SRC"
       fi
+      #
+      # make sure we only have one of each source
+      #
+      sort -u $PWL_PRJ/$CUSTOM_SRC | sed "s!//!/!g" > .result
+      cp .result $PWL_PRJ/$CUSTOM_SRC
 }
+
 #
 # custom_add( srcDirFn, custDirFn )
+#      copy the given source file (or directory) to the custom configuration
+#      directory
 #
 function custom_add()
 {
+      $decho "start custom_add"
       srcDirFn=$1
       custDirFn=$2
       if [ "$srcDirFn" = "" ] || [ "$custDirFn" = "" ] ; then
          usage "Invalid parameters: $*"
+      fi
+      if [ ! -f $srcDirFn ] && [ ! -d $srcDirFn ] ; then
+         return 1         # not a file, not a dir, what is it ?
       fi
       #
       # copy source file or directory to custom directory
@@ -225,12 +297,20 @@ function custom_add()
       if [ -d $PWL_PRJ/$CUSTOM_DIR/$custDirFn ] ; then
          dir_tree_list_all $PWL_PRJ/$CUSTOM_DIR/$custDirFn
          for fn in `cat .result` ; do
-            echo $custDirFn"$fn" >> $PWL_PRJ/.$CUSTOM_LST
+            echo ${custDirFn##/}/"$fn" >> $PWL_PRJ/.$CUSTOM_LST
          done
       else
-         echo $custDirFn >> $PWL_PRJ/.$CUSTOM_LST
+         echo ${custDirFn##/} >> $PWL_PRJ/.$CUSTOM_LST
       fi
+      # sort for nice display, and to only list once
+      #
+      cat $PWL_PRJ/.$CUSTOM_LST | sed "s!^/!!g" | sort -u > .result
+      cp .result $PWL_PRJ/.$CUSTOM_LST
+      #
+      $decho "end custom_add"
+      return 0
 }
+
 #
 # custom_delete( srcname )
 #
@@ -239,7 +319,7 @@ function custom_delete()
       #
       # Delete single file or directory
       #
-      srcName=$1
+      srcName=${1#/}
       if [ "$srcName" = "" ] ; then
          usage "Invalid parameters: $*"
       fi
@@ -261,6 +341,7 @@ function custom_delete()
 #
 function custom_extract()
 {
+   $decho "start custom_extract"
       #
       # Extract custom files to file system
       #
@@ -280,7 +361,7 @@ function custom_extract()
             #
             # don't copy directories, only files within directories
             #
-            if [ ! -d "$PWL_PRJ/$CUSTOM_DIR$customFn" ] ; then
+            if [ ! -d "$PWL_PRJ/$CUSTOM_DIR/$customFn" ] ; then
                #
                # build path to file, if required
                #
@@ -289,11 +370,11 @@ function custom_extract()
                   mkdir -p $desPath
                fi
                #
-               # use -f to delete links, then create new file
-               # use -axp to preserve attributes
+               # use -f to delete any previous files, then create new file
+               # use -ax to preserve attributes
                #
-               cp -faxp "$PWL_PRJ"/"$CUSTOM_DIR"$customFn  $destMnt/$customFn
-               echo "copied $PWL_PRJ/$CUSTOM_DIR$customFn"
+               cp -fax "$PWL_PRJ"/"$CUSTOM_DIR"/$customFn $destMnt/$customFn
+               echo "copied $PWL_PRJ/$CUSTOM_DIR/$customFn"
                fileCount=`expr $fileCount + 1`
             fi
          fi
@@ -319,13 +400,14 @@ function custom_toggle()
       custTmp="$PWL_PRJ"/."$CUSTOM_LST"
       selTmp=`basename $selection`
       #
-      # toggle selection
+      # toggle selection - use exact match
       #
-      if grep -q "$selTmp" $custTmp ; then
+$dmon
+      if grep -q "$selTmp$" $custTmp ; then
          #
          #  selection found - remove file (or directory) from the list file
          #
-         grep -v "$selTmp" $custTmp > .result
+         grep -v "$selTmp$" $custTmp > .result
          cp .result $custTmp
          $decho "Excluded custom file (or directory): $selTmp"
       #
@@ -334,7 +416,7 @@ function custom_toggle()
          #      all that match (allows directory adds )
          #
          dir_tree_list_all $PWL_PRJ/$CUSTOM_DIR
-         grep "$selTmp" .result >> $custTmp
+         grep "$selTmp$" .result >> $custTmp
          $decho "Included custom file (or directory): $selTmp"
       fi
       #
@@ -345,28 +427,29 @@ function custom_toggle()
 #
 function custom_update()
 {
-   if [ ! "$*" = "" ] ; then
-      usage "Invalid parameters: $*"
-   fi
-
    if [ ! -f "$PWL_PRJ"/"$CUSTOM_SRC" ] ; then
-      $decho "end project_custom_update (no sources specified)"
+      $decho "end custom_update (no sources specified)"
       return
    fi
-   for srcDestFn in `cat "$PWL_PRJ"/"$CUSTOM_SRC"`; do
+
+   for srcDestFn in `(cat "$PWL_PRJ"/"$CUSTOM_SRC")`; do
+      $decho -n "."
       #
       # seperate source and destination names
       #
-      srcFn=`echo $srcDestFn | cut -f1 -d=`
-      destFn=`echo $srcDestFn | cut -f2 -d=`
+      destFn=${srcDestFn##*=}
+      srcFn=${srcDestFn%%=*}
       #
-      # compare files, prompt if updating required
+      # Check source files, prompt if not found
       #
       if [ -d "$srcFn" ] ; then
          xx=1   #ignore directories for purposes of date compares ??
                 # user could put new files in sources, without
                 # adding to project
       #
+      elif [ -L "$srcFn" ] ; then
+         xx=1   # don't flag links as errors
+
       elif [ ! -e "$srcFn" ] ; then
          #
          # original source file not found, announce to user
@@ -376,6 +459,8 @@ function custom_update()
            9
          $decho "source not found $srcFn"
       #
+      #  Check destination files, add if not found, prompt if old
+      #
       elif [ ! -e "$PWL_PRJ"/"$CUSTOM_DIR"/"$destFn" ] ; then
          #
          # custom file not in project, copy from source
@@ -383,11 +468,9 @@ function custom_update()
          $decho "Custom file not found:$destFn"
          custom_add $srcFn "$destFn"
       #
-      else
-         #
-         # compare the dates of the original source and existing custom file
-         #
-         if  [ "$srcFn" -nt "$PWL_PRJ"/"$CUSTOM_DIR"/"$destFn" ] ; then
+      # compare the dates of the original source and existing custom file
+      #
+      elif  [ "$srcFn" -nt "$PWL_PRJ"/"$CUSTOM_DIR"/"$destFn" ] ; then
             #
             # custom file out of date, prompt to replace
             #
@@ -398,13 +481,202 @@ function custom_update()
                $decho "Custom file out of data: $destFn"
                custom_add $srcFn "$destFn"
             fi
-         fi
-         #
       fi
       #
    done
    #
    $decho "end custom_update"
+}
+
+#=============================================================================
+#
+# custom_refresh( mntName, chkFn )
+#    compare custom files with file at mount point
+#
+function custom_refresh()
+{
+   $decho "start custom_refresh"
+   mntName=$1
+   chkFn=$2
+   #
+   # verify parameters
+   #
+   if [ "$mntName" = "" ] || [ "$chkFn" = "" ] ; then
+      $decho "custom compare no files given"
+      return
+   fi
+   if [ ! -e "$mntName" ] || [ ! -e "$PWL_PRJ/$CUSTOM_DIR/$chkFn" ] ; then
+      $decho "custom compare files not found"
+      return
+   fi
+   #
+   # Show user the information about both files for an informed decision
+   #
+   destInfo="`find $PWL_PRJ/$CUSTOM_DIR/$chkFn -printf "%s   %t   %p     "`"
+
+   srcInfo="`find $mntName -printf "%s   %t   %p     "`"
+   #
+   # compare dates of files to see if original is newer
+   #
+   if [ "$PWL_PRJ/$CUSTOM_DIR/$chkFn" -nt "$mntName" ] ; then
+      #
+      # The orginal custom file is newer than project custom file
+      #
+      #
+      show_confirm "Replace Custom file: $chkFn ?" \
+          "Replace Mounted File: $srcInfo ............. With Newer Custom file: $destInfo ?" \
+          10
+
+      if [ "$?" = "0" ] ; then  # yes, replace it
+         #
+         # User confirmed, refresh the file
+         cp -fa $PWL_PRJ/$CUSTOM_DIR/$chkFn $mntName
+         #
+      fi
+   elif [ $mntName -nt "$PWL_PRJ/$CUSTOM_DIR/$chkFn" ] ; then
+      #
+      # the mounted file system file is newer than the custom file
+      #
+      show_confirm "Replace Custom file: $chkFn ? " \
+          "Replace Old Custom File: $destInfo ........... With Newer file: $srcInfo ?" \
+          10
+      if [ "$?" = "0" ] ; then
+         # User confirmed, replace file
+         custom_add $mntName $chkFn
+      fi
+   else
+      $decho "Custom Files same date"
+      echo -n "c"
+   fi
+   $decho "done custom_refresh"
+}
+
+#
+#  custom_remove
+#
+function custom_remove ()
+{
+   $decho "start custom_remove"
+   #
+   # prompt
+   #
+   gotOne=0
+   while [ $gotOne = "0" ]
+   do
+      get_string "Delete Custom File(s)" \
+              "Enter path and name of custom file or directory:" \
+              "srcName" $1
+      if [ $? != "0" ] ; then
+         return 0
+      fi
+      #
+      if [ -z "$PWL_PRJ"/"$CUSTOM_DIR"/$srcName ] ; then
+         return 0
+      fi
+      if [ ! -e "$PWL_PRJ"/"$CUSTOM_DIR"/$srcName ] ; then
+         show_message "File Not Found" " Check path and name and guess again"
+      else
+         gotOne=1
+      fi
+   done
+   #
+   # confirm remove
+   #
+   show_confirm "Removing Custom File(s) ! CAN NOT BE UNDONE ! "\
+                   "Really remove Custom file(s) $srcName from project ?"
+
+   if [ $? = "0" ] ; then
+      #
+      # kill'em, kill'em all - kill kIll KILL
+      #
+      custom_delete $srcName
+
+   fi
+   $decho "end custom_remove"
+}
+
+#
+# custom_new - creates new custom files and records process
+#
+function custom_new()
+{
+   $decho "start custom_new"
+   #
+   # prompt for source and destination
+   #
+   gotOne=0
+   while [ $gotOne = "0" ]
+   do
+      # prompt user for source location,
+      get_string "Add Custom File(s)" \
+              "Enter path to source file or directory:" \
+              "srcName" $prjCustomSrc"/"
+      if [ $? != "0" ] ; then
+         return 0
+      fi
+      # ignore if ESC, help or blank line entered
+      if [ -z "$srcName" ] ; then
+         $decho "end custom_new 0 (no source)"
+         return 0
+      fi
+      # valid only if file exists
+      if [ ! -e "$srcName" ] ; then
+         show_message "File Not Found" " Check path and name and guess again"
+      else
+         gotOne=1
+      fi
+   done
+   #
+   # likewise, get destination location
+   #
+   gotOne=0
+   while [ $gotOne = "0" ]
+   do
+      #
+      # prompt user for a destination
+      #
+      get_string "Add Custom File(s)" \
+              "Enter path and name (from root) of final destination" \
+              "destName" "/"
+      #
+      # do nothing if "esc" key, help or blank name entered
+      #
+      if [ $? != "0" ] ; then
+         return 0
+      fi
+      if [ -z "$destName" ] ; then
+         $decho "end custom_new 0 (no dest)"
+         return 0
+      fi
+      #
+      # check to see if we are overwriting any existing files
+      #
+      if [ -e "$PWL_PRJ"/"$CUSTOM_DIR"/"$destName" ] ; then
+         show_confirm "Destination File(s) exist" \
+                       "Overwrite files in $CUSTOM_DIR$destName ?"
+         if [ $? = "0" ] ; then
+            # valid destination confirmed to overwrite
+            gotOne=1
+         fi
+      #
+      else
+         # valid destination
+         gotOne=1
+      fi
+   done
+   #
+   # Update the custom list configuration
+   #
+   custom_source $srcName $destName
+   custom_add    $srcName $destName
+   #
+   # Tell user how happy we are now
+   #
+   show_message "Custom files from $srcName" \
+                "Added to project at $destName"
+   #
+   $decho "end custom_new 1"
+   return 1
 }
 
 #
@@ -434,67 +706,181 @@ function custom_init()
    $decho "done custom init"
 }
 
+#=============================================================================
 #
-# main - parse commands and execute them
+#  menu_custom
 #
-  # debugMode="1"   # uncomment to force mode for testing this shell
-  #
-  # get project name - todo: check command line first
-  #
-  if [ -z "$PWL_PRJ" ] ; then
-     # get last default project
-     usage "No Project"
-  fi
-  if [ "$1" = "" ] ; then
-     usage "No Command "
-     exit 0
-  fi
-  #
-  # setup for debug mode
-  #
-  if [ "$debugMode" = "1" ] ; then
-     decho=echo
-  else
-     decho=":"
-  fi
-  #
-  # execute command
-  #
-  cmd=$1
-  shift
-  case "$cmd" in
-     "toggle")
-        custom_toggle $*
-        ;;
-     "delete")
-        custom_delete $*
-        ;;
-     "add")
-        custom_add $*
-        ;;
-     "source")
-        custom_source $*
-        custom_add $*
-        ;;
-     "extract")
-        custom_extract $*
-        # print count of files extracted on stderr stream
-        echo "$?"  1>&2
-        ;;
-     "update")
-        custom_update $*
-        ;;
-     "init")
-        custom_init
-        ;;
-     "--help")
-        usage
-        ;;
-     *)
-        echo "Invalid command"
-        exit 1
-        ;;
-  esac
-  #
-  #  $decho "end $0"
+function menu_custom()
+{
+   $decho "start menu_custom"
+   #
+   customDone=0
+   filesDefault=""
+   #
+   # operate custom configuration menu until exit pressed
+   #
+   while [ "$customDone" = "0" ]; do
+      #
+      #  build list of files from custom directory, flag based on status file
+      #
+      build_custom .custom.lst
+      show_files '"Configure Custom Files Menu"' .custom.lst 2>.result
+      retVal=$?
+      read selection <.result
+      #
+      # only assign default for files selected
+      #
+      # Operate on command selected or toggle file
+      #
+      case "$retVal" in
+         1|255)
+            # esc or exit selected
+            #
+            customDone=1
+            ;;
+         2)
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_custom.README
+            #
+            # show help for custom configuration
+            #
+            show_help pwl_custom.README menu_custom    # show help
+            ;;
+         0|3|4|5|6)
+            # file or command selected, assign default
+            filesDefault=$selection
+            #
+            # operate command or toggle
+            #
+            if [ $selection = "Define" ] ; then
+               # define source location and copy new custom file(s)
+               custom_new
+            #
+            elif [ $selection = "Delete" ] ; then
+               # delete all references to custom file(s)
+               custom_remove "/"
+            #
+            elif [ $selection = "Add" ] ; then
+               # include all custom files
+               dir_tree_list_all $PWL_PRJ/$CUSTOM_DIR $PWL_PRJ/.$CUSTOM_LST
+            #
+            elif [ $selection = "Remove" ] ; then
+               # exclude all custom files
+               echo "" > $PWL_PRJ/.$CUSTOM_LST
+            #
+            elif [ $selection = "Total"  ] || [ $selection = "Skip" ] ; then
+               # ignore misc stuff
+               xx=1
+            #
+            else
+               #
+               # and toggle as included or excluded in file list
+               #
+               custom_toggle $selection
+            fi
+            ;;
+         #
+         *)
+               # default
+            ;;
+      esac
+      #
+   done
+   #
+   # return clean
+   #
+   $RM .custom.lst pwl_custom.README 
+   filesDefault=""
+   $decho "end  menu_custom"
+}
+
+#
+# main - parse commands and execute them - display menu otherwise
+#
+function custom_main()
+{
+   $decho "start custom_main"
+   #
+   progInfo="`basename $0` - Version $PWL_PROJECTS_VER"
+   if [ "$backtitle" = "" ] ; then
+      backtitle=$progInfo
+   fi
+   #
+   # use last project or pick one - if none exists, then leave
+   #
+   if [ -z "$CFG_BASE" ] ; then
+      pwl_init_project
+   fi
+   #
+   # execute a command if provided
+   #
+   gotOne=0
+   while [ "$1" != "" ] ; do
+      parm=$1
+      shift
+      $decho "parse $parm $*"
+      case "$parm" in
+         "--help")
+            usage
+            ;;
+         "--project")
+            pwl_init_project $1
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+         "--init")
+            custom_init
+            ;;
+         "--toggle")
+            custom_toggle $1
+            shift
+            ;;
+         "--delete")
+            custom_delete $1
+            shift
+            ;;
+         "--add")
+            custom_add $1 $2
+            shift ; shift
+            ;;
+         "--source")
+            custom_source $1 $2
+            custom_add $1 $2
+            shift ; shift
+            ;;
+         "--extract")
+            custom_extract $1
+            # print count of files extracted on stderr stream
+            echo "$?"  1>&2
+            shift
+            ;;
+         "--update")         # check source files, update if required
+            custom_update
+            ;;
+         "--refresh")        # check mounted files, update custom if required
+            custom_refresh $1 $2
+            shift ; shift
+            ;;
+         *)
+            usage "Invalid command $*"
+            ;;
+      esac
+      gotOne=1;
+   done
+   #
+   if [ "$gotOne" = "0" ] ; then
+      custom_init
+      menu_custom
+   fi
+}
+
+# start here
+  debug_mode 0           # set to 1 to enable debug macros
+  $decho "START $0"
+
+  custom_main $*
+
+  $decho "END $0"
+#
+# end
 #

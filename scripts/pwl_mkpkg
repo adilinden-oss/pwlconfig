@@ -1,0 +1,89 @@
+#! /bin/bash
+
+# scripts/package
+#
+# Creates the packagename.tar and packagename.list files from
+# files and directories located in mnt.
+#
+#  History
+#   v0.86 - added verbose option, support non-existing packages directory
+#   v0.85 - added help message
+#   v0.2 - changed to support package sources in a directory
+#          executable from any location
+usage () {
+    echo ""
+    echo "Usage: package [-v] <souce directory> [ package_filename ]"
+    echo ""
+    echo "  Creates .tar and .list files from all files in the given"
+    echo "  <source directory>.  resulting filename is name of base"
+    echo "  directory in source directory path or optional given"
+    echo "  package_filename."
+    echo ""
+    echo "  (Must be executed from within the Embedded_Build Directory)"
+    exit 0
+}
+#
+# check for verbose flag
+#
+verbose=""
+if [ "$1" = "-v" ] ; then
+   verbose="-v"
+   shift
+fi
+#
+# Test for name
+#
+if [ -z "$1" ] || [ ! -d "$1" ] ; then
+   usage
+fi
+#
+# locate the home directory
+#
+locNow=`pwd`
+locHome=${locNow%Embedded_Build*}
+#
+# makesure we are with only in the Embedded_Build directory
+#
+if [ "$locHome" = "" ] || [ "${locHome}Embedded_Build" != "$locNow" ] ; then
+    echo ""
+    echo "This needs to be run from within the"
+    echo "Embedded_Build directory!"
+    echo ""
+    exit 0
+fi
+#
+# create path variables
+#
+locHome=${locHome}"Embedded_Build"
+locPackage=${locHome}"/packages"
+rootSrc=`dirname $1`
+#
+# build packages directory if it doesn't exist
+#
+if [ ! -d $locPackage ] ; then
+   mkdir $locPackage
+fi
+#
+# get package name, default to end directory given or use parm #2
+#
+pkgName=`basename $1`
+if [ "$2" != "" ] ; then
+   pkgName="$2"
+fi
+#
+# Created the .tar and .list files as default packages (in "/packages" dir)
+#  Note: -C option in tar doesn't work with wildcards!
+#
+#tar cvp -C $1 -f $locPackage/$pkgName.tar * > $locPackage/$pkgName.list
+#
+loc=`pwd`
+cd $1
+if [ "$verbose" != "" ] ; then
+   tar -cpvf $locPackage/$pkgName.tar * |tee $locPackage/$pkgName.list
+else
+   tar -cpvf $locPackage/$pkgName.tar * > $locPackage/$pkgName.list
+fi
+cd $loc
+#
+# end.
+#

@@ -1,0 +1,386 @@
+#!/bin/bash
+#
+###
+#  Usage: pwl_rpmloader -v [ SRC | EXE ] <rpm'd program> [ version ]
+#
+#  Copies all files from specified rpm program into pwl sources directory
+#  
+#  Note: If the rpm program is not installed
+#           it is install from then rpm package file
+#  Note: If the rpm package file is not found
+#           it is copied from the Red Hat disk (disk #1 or disk #2)
+###
+# History
+#    V0.1 Created
+#
+#=============================================================================
+VER_PWL_RPMLOADER=0.1
+#
+#  Directory structure and file name defaults
+#
+sourceBase="./sources"
+#
+# directories where all necessary files will reside
+#
+SRC_DIR=src
+PKG_DEP_DIR=pkg_dep
+PKG_FILES_DIR=pkg_files
+#
+# the list files containing all files to be included in a package
+#
+SRC_LIST=src.list
+PKG_LIST=pkg.list
+PKG_DEP_LIST=dep.list
+#
+#decho=echo
+decho=:
+#========================================================================
+#
+# usage
+#
+function usage()
+{
+   echo ""
+   echo  `basename $0` - Version $VER_PWL_RPMLOADER
+   #
+   # parse usage message from top of file
+   #
+   sed -n /^###/,/^###/p $0 | sed s/^#*//g
+   #
+   # show any error message
+   if [ ! -z "$1" ] ; then
+      echo ""
+      echo $*
+   fi
+   exit 0
+}
+
+#
+# copy files( sourceList, destDirectory )
+#
+function copy_files()
+{
+   if [ -z "$1" -o -z "$2" ] ; then
+      usage internal copy_files error
+   fi
+   #
+   for fn in `cat $1` ; do 
+      echo -n "."
+      cp -axP $fn $2
+   done
+   echo ""
+}
+
+#
+# rpm_install( rpmFile progName )
+#
+function rpm_install()
+{
+   if [ -z "$1" -o -z "$2" ] ; then
+      usage internal rpm_install error
+   fi
+   #
+   # extract the rpm
+   #
+   rpm -Uvh $1
+   #
+   # verify this worked
+   #
+   rpm -q $2 > .result 2>&1
+   if grep -q "not installed" .result ; then 
+      usage Error installing rpm $1
+   fi
+}
+
+function rpm_get_CD()
+{
+      #
+      # ask for proper CDROM
+      #
+      umount /mnt/cdrom 2>.result >.result
+      #
+      if [ "$1" = "SRC" ] ; then
+         echo -n 'Insert Red Hat sources Disk (#2) - press any key to start'
+      else
+         echo -n 'Insert Red Hat Install Disk (#1) - press any key to start'
+      fi
+      read x
+      mount /dev/cdrom /mnt/cdrom 2>.result >.result
+}
+
+function rpm_check_CD()
+{
+      if [ ! -z "$progVer" ] ; then
+         if [ ! -f $rpmDir/$rpmFile ] ; then
+            # user specified version, this was not found
+             usage "RPM program/version not found for $rpmFile"
+         fi
+      else
+         # 
+         # no version specified, check for other versions
+         #
+         ls $rpmDir/$progName* > .result
+         if [ ! -s .result ] ; then
+            usage RPM program not found for $progName
+         fi
+         rpmFile=`grep $rpmExt .result | grep $progName`
+         if [ ! -z "$rpmFile" ] ; then
+            rpmFile=`basename "$rpmFile"`
+         fi
+         #
+         # check to see if file has correct extension
+         #
+         if [ ! -f "$rpmDir/$rpmFile" ] ; then
+            usage "RPM file not found for $progName...$rpmExt"
+         fi
+      fi
+}
+
+function rpm_get_filename()
+{
+   if [ "$1" = "SRC" ] ; then
+      rpmExt="src.rpm"
+      rpmDir=/mnt/cdrom/RedHat/SRPMS
+   else
+      rpmExt="i386.rpm"
+      rpmDir=/mnt/cdrom/RedHat/RPMS
+   fi
+   #
+   # build name for the file from program name, version and extension
+   #
+   rpmFile=${2}-${3}"."$rpmExt 
+}
+
+#
+# rpm_load( rpmType progName progVer )
+#      gets the rpm file name, copy if not found
+#
+function rpm_load()
+{
+   if [ -z "$1" -o -z "$2" ] ; then
+      usage internal rpm_load error
+   fi
+   #
+   # get the name of the rpm file to load
+   #
+   rpm_get_filename $1 $2 $3
+   #
+   # see if we have the file
+   #
+   ls $progDir/$progName* > .tmp.lst 2>/dev/null 
+   grep $rpmExt .tmp.lst > .result
+   if [ -z "$progVer" -a  -s .result ] ; then
+      #
+      # we have a file,  version number not specified, so use this one
+      #
+      rpmFile=`grep $rpmExt .result | grep $progName`
+      rpmFile=`basename $rpmFile`
+   fi
+   copyNeeded=""
+   if [ ! -f "$progDir/$rpmFile" ] ; then
+      #
+      # request and check CD for this file, or find version
+      #
+      echo RPM package file was not found
+      echo ""
+      rpm_get_CD
+      rpm_check_CD
+      copyNeeded="1"
+   fi
+   #
+   # rpm File was found, set version if not specified
+   #
+   if [ -z "$progVer" ] ; then  
+      # 
+      # no version specified, set to version of file found
+      #
+      progVer=${rpmFile##$progName\-}
+      progVer=${progVer%%"."$rpmExt}
+      rpmName=${progName}-${progVer}   
+   fi
+   #
+   #
+   if [ "$copyNeeded" = "1" ] ; then
+      echo ""
+      echo "Copying RPM file "
+      echo "  from:   $rpmDir/$rpmFile "
+      echo "    to:   $progDir"
+
+      cp $rpmDir/$rpmFile $progDir
+      echo copied $rpmFile to $progDir
+      read x
+   fi
+}
+
+#
+# rpm_get_src_files( srcList rpmName )
+#
+function rpm_get_src_files()
+{
+   #
+   # copy all source files to our directory
+   #
+   if [ ! -f $1 ] ; then
+      rpm -q -l $2 > $1
+   fi
+}
+
+#
+# rpm_get_pkg_files( pkgListFile, pkdDepFile, rpmName )
+#
+function rpm_get_pkg_files()
+{
+   #
+   # if no optimized list exists, default to removing the man pages and docs
+   #
+   if [ ! -f "$1" ] ; then 
+      #
+      # build a list of all files, no manuals and no docs
+      #
+      rpm -q -l $3 | grep -v "\/man\/" | grep -v "\/doc\/" | grep -v "\/info\/" > $1
+   fi
+   #
+   # Build a list of all dependencies for this package 
+   #
+   if [ ! -f $2 ] ; then
+      rpm -q -R $3 > .tmpDep.lst
+      for fn in `cat .tmpDep.lst` ; do 
+         echo Depends on $fn >> $2
+         # 
+         # search users file system for these files
+         # store file path and name
+         #
+     done
+   fi
+   #
+}
+
+#
+# cmd_line_parse
+#
+function cmd_line_parse
+{
+   $decho "start cmd_line_parse"
+   #
+   # Check command line parameters - two required
+   #
+   if [ -z "$1" -o -z "$2" ] ; then
+      usage 
+   fi
+   #
+   # for verbose mode, just turn on our debug statements
+   #
+   if [ "$1" = "-v" ] ; then
+      decho=echo
+      shift
+   fi
+   #
+   # make sure SRC or EXE is specified
+   #
+   if [ "$1" = "SRC" -o "$1" = "EXE" ] ; then
+      rpmType=$1   
+   else
+      usage "Unknown type, specify SRC or EXE"
+   fi
+   #
+   # at lease an RPM must be specified
+   #
+   if [ "$2" = "" ] ; then
+      usage "No RPM name specified"
+   fi
+   #
+   #  create file path/name variables
+   #
+   progName="$2"
+   progDir=$sourceBase/${progName}
+   $decho "type is $rpmType program is $progName at $progDir"
+   #
+   progVer=""
+   if [ "$3" != "" ] ; then
+      progVer="$3"
+      $decho "Version is $progVer, rpm file is $rpmName" 
+   fi
+}
+
+#
+# main - start here
+#
+   $decho "start"
+   #
+   cmd_line_parse $*
+   #
+   # make sure we have the directory for this program
+   #
+   if [ ! -d $progDir ] ; then
+      mkdir -p $progDir
+      $decho "created directory $progDir"
+   fi
+   #
+   # verify that package is installed, install if not
+   #
+   rpm -q "$progName" > .result 2>&1
+   if grep -q "not installed" .result ; then
+      #
+      echo ""
+      echo "RPM $progName is not installed."
+      #
+      # make sure we have the actual rpm file, or copy it
+      #
+      rpm_load $rpmType $progName $progVer
+      #
+      # now install it, since RPMS are ALWAYS absolute path :-(
+      #
+      rpm_install $progDir/$rpmFile $progName
+   fi
+   #
+   # verify version number of installed RPM
+   #
+   if [ ! -z "$progVer" ] ; then
+      rpmName=${progName}-${progVer}
+      rpmInstVer=`rpm -q $progName`
+      if [ "$rpmInstVer" != "$rpmName"  ] ; then
+         usage Installed RPM $rpmInstVer is not requested version: $rpmName
+      fi
+   else
+      rpmName=`rpm -q $progName`
+   fi
+   #
+   echo "Installed RPM is $rpmName"
+   #
+   #  now get the files
+   #
+   if [ $rpmType = "EXE" ] ; then
+      #
+      pkgListFile=$progDir/.$rpmName"."$PKG_LIST
+      pkgDepFile=$progDir/.$rpmName"."$PKG_DEP_LIST
+      #
+      rpm_get_pkg_files $pkgListFile $pkgDepFile $rpmName
+      #
+      # copy the specified files
+      #
+      echo "coping RPM EXE files into $progDir"
+      $decho "`$decho cat $pkgListFile`"
+      $decho "into source: $progDir"
+      $decho "Press a key to begin copy "
+      $decho "`$decho read x`"
+      #
+      copy_files $pkgListFile $progDir
+      #
+      # TO DO: something with the dependencies
+      # copy_files $pkgDepFile  $progDir/.$progName"."$PKG_DEP_DIR
+      echo "This RPM depends on the following files:"
+      echo "`cat $pkgDepFile`"
+   else
+      srcListFile=$progDir/$progName"."$SRC_LIST
+      rpm_get_src_files $srcListFile $rpmName
+      echo created $srcListFiles
+      read x
+      copy_files $srcListFiles $progDir/$SRC_DIR
+   fi
+   #
+   # thats all for now...
+   #  ...binary files need to be tarred and copied as a package
+   #  ...source files need to be compiled , then copied into our pkg
+   #     directory then tarred and packaged
+   #
+# end.

@@ -1,0 +1,742 @@
+#! /bin/bash
+#
+# boot_device  - script to configure [ Disk on Chip | flash | floppy | CDROM ]
+#
+#    Erase | format | copy
+#
+#    Manual "fdisk" or similiar is required before using this script!
+#
+#    Created by Ralph Stickley rstickley@datalux.com
+#    Many Features copied from init.d scripts
+#
+#    Built for Pee Wee Linux created by Adi Linden 
+#
+# History
+#    v0.9 - cleanup, allow full unmount, support for floppies
+#    v0.8 - allow erase of trashed file systems
+#    v0.7 - allow exiting on erro for mount command
+#    v0.6 - allow plilo in scripts directory
+#           rename lilo.conf after command line deviceType
+#    v0.5 - rewritten as generic device handler from previous shell script
+#    V0.3 - seperate file system and boot operation
+#    V0.2 - tested using updates directory and create lilo.doc.conf
+#    v0.1 - released not tested
+#
+# Make sure we're really running bash.
+#
+[ -z "$BASH" ] && { echo "DOConfig requires bash" 1>&2; exit 1; }
+
+#---------------------------------------------------
+#
+#  constants for this shell script
+#
+VER=0.9
+#
+[ -z "$COLUMNS" ] && COLUMNS=80
+RES_COL=40
+[ -z "$MOVE_TO_COL" ] && MOVE_TO_COL="echo -en \\033[${RES_COL}G"
+#
+# Debugging
+#
+debugMode=0   # set to 1 to enable debugging
+#
+if [ "$debugMode" = "1" ] ; then
+   decho=echo
+   RM=":"
+else
+   decho=":"
+   RM="rm -f"
+fi
+#
+#---------------------------------------------------
+#
+# utility programs, may vary with distro or preference
+#
+FMT_FS=/sbin/mkfs.ext2
+RDEV=/usr/sbin/rdev
+#
+#  Lilo will depend on type of device selected (DOC uses patched lilo)
+#
+[ -z "$PLILO" ] && PLILO=./bin/lilo
+[ ! -f "$PLILO" ] && PLILO=./bin/lilo
+DOC_LILO=./bin/Lilo6_21
+
+#---------------------------------------------------
+#
+# System files used by shell script
+#
+BD_LOG=.bdev.log
+#
+#  default constants for boot device
+# 
+#   BD_MNT - ./mnt - default directory for mounting Boot Device
+#   BD_ID  - 1     - device identifier number (the one in /dev/xxx1)
+#
+BD_DEFAULT_MNT="./mnt"
+BD_DEFAULT_ID="1"
+#
+BD_MNT=$BD_DEFAULT_MNT
+#
+#  default file names for lilo
+#
+BD_BOOT_FN="/boot/boot.b"
+DOC_BOOT_FN="/boot/boot.b6-21"
+BD_KERNEL="vmlinuz"
+
+#---------------------------------------------------
+#
+#   Default parameters
+#
+#    LILO parameters - used to build lilo configuration file
+#
+#   xxx_ROOT_DEV - when the device boots, it is found as xxx_ROOT_DEV
+#   xxx_KERNEL   - name and path of the kernel boot image file
+#   xxx_ID       - device identifier (the one in "/dev/xxx1")
+#
+#   DOC - Disk On Chip
+#
+DOC_DEV="/dev/fla"
+DOC_ROOT_DEV="/dev/fla1"
+DOC_KERNEL="/boot/doc2000"
+DOC_ID="1"
+#
+#   FLASH - flash disk (IDE type)
+#
+FLASH_DEV="/dev/hdc"
+FLASH_ID="1"
+FLASH_ROOT_DEV="/dev/hda1"
+FLASH_KERNEL="$BD_KERNEL"
+#
+#   Floppy drive
+#
+FLOPPY_DEV="/dev/fd0"
+FLOPPY_ID=""
+FLOPPY_ROOT_DEV="/dev/fd0"
+FLOPPY_KERNEL="$BD_KERNEL"
+#
+#   CDROM drive
+#
+CDROM_DEV="/dev/cdrom"
+CDROM_ID=""
+CDROM_ROOT_DEV="/dev/cdrom"
+CDROM_KERNEL="/boot/autoboot.img"
+
+#---------------------------------------------------
+#
+# Function: Usage
+#
+function BD_Usage() 
+{
+   echo ""
+   echo -e "`basename $0` \t\t Boot Device shell utility - V $VER"
+   echo ""
+   #
+   if [ ! "$1" = "" ] ; then
+      echo $1
+      echo "To see all options, type: `basename $0` --help"
+      exit 1
+   fi
+   #
+   echo "Usage: `basename $0` [--help | [ <device> [ options... | -<operation...> ] ]"
+   echo ""
+   echo "  where:"
+   echo "    <device>     [ DOC | FLASH | CDROM | FLOPPY ]"
+   echo "    <operation>  [ b | c [source] | e | l | m ]"
+   echo "                   combined operations execute in order give."
+   echo '                   (i.e. use -ecb to completely build bootable device)'
+   echo "    <options>    [ --device --label --kernel --mount --source"
+   echo "                   --dev-id --boot-file --root-dev]"
+   echo ""
+   echo "  devices supported:          default device: "
+   echo "    DOC    - Disk-On-Chip    $DOC_DEV$DOC_ID"
+   echo "    FLOPPY - Floppy disk     $FLOPPY_DEV$FLOPPY_ID"
+   echo "    FLASH  - IDE flash drive $FLASH_DEV$FLASH_ID"
+   echo "    CDROM  - cdrom drive     $CDROM_DEV$CDROM_ID"
+   echo ""
+   echo "  operations:"
+   echo "   -b   Format MBR of device with Lilo (patched)"
+   echo "   -c   Copy file system to device, optional source overrides --source"
+   echo "   -e   Erase device at mount point (default is $BD_MNT)"
+   echo "   -l   list files on device"
+   echo "   -m   Mount device at mount point"
+   echo ""
+   echo "  options:"
+   echo "   --device    name of device node file - i.e. /dev/xxx"
+   echo "               (see default for each device)"
+   echo "   --label     when Formatting device, use this label to prompt user"
+   echo "               defaults to the name of the kernel file"
+   echo "   --kernel    name of kernel file used for booting device"
+   echo "               (see default for each device)"
+   echo "   --mount     mount point for the device "
+   echo "               (defaults to $BD_DEFAULT_MOUNT)"
+   echo "   --source    source file system used for copy operation"
+   echo "               (defaults to current directory)"
+   echo "   --dev-part  the device partition (ie. the one in /dev/hda1)"
+   echo "               (defaults to 1)"
+   echo "   --boot-file the name and location of the boot record file"
+   echo "               (defaults to $BD_BOOT_FN)"
+   echo "   --root-dev  the device node this unit will appear as when it boots"
+   echo ""
+   echo " Creates Logfile: $BD_LOG"
+   echo ""
+   exit 0
+}
+
+#---------------------------------------------------
+#
+# Function: BD_Mounted  (ExitOnError)
+#      Verifies that the current mount point, BD_MNT exists or create it
+#      Verifies that the device node /dev/xxx, BD_DEV$BD_ID exists
+#      Checks to see if device is mounted anywhere on our system
+#      Checks to see if device is mounted at BD_MNT
+#      returns "1" if all these checks pass
+#
+#      if parameter ExitOnError is set, the exits this script with error status
+#      of "1" when any problems are encountered
+#
+function BD_Mounted() 
+{
+   $decho "started BD_Mounted"
+   #
+   # verify mount point exists or create it
+   #
+   if [ ! -d $BD_MNT ]; then
+      echo "Creating $devType mount point at: $BD_MNT" |tee -a $BD_LOG
+      mkdir -p $BD_MNT |tee -a $BD_LOG
+      if [ ! -d $BD_MNT ] ; then
+         echo "Could not create mount point at: $BD_MNT" |tee -a $BD_LOG
+         if [ "$1" = "" ] ; then
+            return 0
+         else
+            exit 1
+         fi
+      fi
+   fi
+   $decho "Found mount point: $BD_MNT"
+   #
+   # verify device node exists in /dev directory
+   #
+   if [ ! -e "$BD_DEV$BD_ID" ] ; then
+      echo "Device Node does not exist: $BD_DEV$BD_ID" |tee -a $BD_LOG
+      if [ "$1" = "" ] ; then
+         return 0
+      else
+         exit 1
+      fi
+   fi
+   $decho "Found Device Node: $BD_DEV$BD_ID"
+   #
+   # check if device is mounted (may already be someplace else)
+   #
+   if ! grep -iqs "$BD_DEV""$BD_ID" /proc/mounts ;  then
+      echo "Device $BD_DEV$BD_ID is not mounted" |tee -a $BD_LOG
+      if [ "$1" = "" ]; then
+         return 0
+      else
+         exit 1
+      fi
+   fi
+   $decho "Found mounted device"
+   #
+   # verify $BD_DEV is mounted at $BD_MNT
+   #
+   if ! grep -iqs "$BD_DEV$BD_ID $BD_MNT" /proc/mounts ; then
+      echo "Device $BD_DEV$BD_ID not mounted at $BD_MNT" |tee -a $BD_LOG
+      if [ "$1" = "" ]; then
+         return 0
+      else
+        exit 1
+      fi
+   fi
+   $decho "Found mounted device $BD_DEV$BD_ID at $BD_MNT"
+   # valid mount, return true
+   return 1
+}
+
+#
+# BD_Unmount - force device and mount point to be unmounted
+#
+function BD_Unmount()
+{
+   #
+   # unmount device it in case it was previously mounted elsewhere
+   #
+   umount $BD_DEV$BD_ID |tee -a $BD_LOG
+   #
+   # unmount mount point in case somebody else is mounting it - how crude
+   #
+   umount $BD_MNT       |tee -a $BD_LOG
+}
+
+#
+# BD_Mount
+#
+function BD_Mount()
+{
+   $decho "BD_Mount started"
+   #
+   # verify mount parameters, if not mounted then do the mount
+   #
+   BD_Mounted
+   if [ "$?" = "0" ] ; then   # device is not mounted properly!
+      #
+      # unmount it
+      #
+      BD_Unmount
+      #
+      # now stick it where we know it should be
+      #
+      echo "Executing: mount $BD_DEV$BD_ID $BD_MNT"  |tee -a $BD_LOG
+      #
+      mount $BD_DEV$BD_ID $BD_MNT 2>&1 >> $BD_LOG
+      if [ "$?" != "0" ] ; then
+         echo "" |tee -a $BD_LOG
+         echo "Mount error: device filesystem may be invalid" |tee -a $BD_LOG
+         echo " - Make sure device is available" |tee -a $BD_LOG
+         echo " - Make sure device is partitioned (use fdisk)" |tee -a $BD_LOG
+         echo " - Make sure to Erase and format the device" |tee -a $BD_LOG
+         exit 1
+      fi
+      #
+      # if we cann't mounted it now, its not going to happen
+      #
+      BD_Mounted ExitOnError
+   fi
+   return 0
+}
+
+#---------------------------------------------------
+#
+# Lilo_Verify() check parameters and verify all files and directories exist
+#
+function Lilo_Verify()
+{
+      #
+      # verify parameters for lilo config file
+      #
+      [ ! -d $BD_MNT/boot ] && BD_Usage "invalid Boot Directory: $BD_MNT/boot"
+      [ ! -d $BD_MNT ]      && BD_usage "Invalid mount point: $BD_MNT"
+      [ ! -e "$BD_DEV""$BD_ID" ] && BD_Usage "Device not found: $BD_DEV$BD_ID"
+      [ ! -f "$BD_MNT""$BD_BOOT_FN" ] && BD_Usage "Boot Record not found:  $BD_MNT$BD_BOOT_FN"
+      [ ! -f "$BD_MNT"/$BD_KERNEL ] && BD_Usage "Kernel file not found: $BD_KERNEL"
+   #
+   # lilo complains if anyone else can write the file
+   # change to readonly
+   # 
+   chmod 644 $LILO_FILE
+}
+
+#
+# Lilo_Install
+#
+function Lilo_Install()
+{
+      #
+      # show'em the file
+      #
+      echo ""
+      more $LILO_FILE
+      echo ""
+      #
+      # prompt user before we trash the master boot record
+      #
+      echo -n "Enter 'L' to run this Lilo Configuration on $BD_MBR: "
+      read ans
+      if [ "$ans" = "L" ]; then
+         #
+         # rdev on boot image
+         #
+         echo ""
+         echo rdev on kernel $BD_MNT$BD_KERNEL was `$RDEV $BD_MNT$BD_KERNEL`
+         $RDEV $BD_MNT$BD_KERNEL $BD_ROOT_DEV
+         echo rdev on kernel changed to `$RDEV $BD_MNT$BD_KERNEL`
+         #
+         # commence trashing, ummm, installing boot
+         #
+         echo "Executing: $PLILO -C $LILO_FILE"
+         $PLILO -C $LILO_FILE
+         sync
+         return 0
+      fi
+      #
+   #
+   return 1
+}
+
+#
+#  BD_Lilo_conf  - builds lilo configuration file. Uses globals:
+#      BD_MNT    - mount point where file system is 'now'
+#      BD_DEV    - device name base (ie: dev/fla )
+#      BD_KERNEL - kernel image
+#      BD_LABEL  - boot prompt for this device
+#      BD_ROOT_DEV - root device for unit when it boots
+#
+function BD_Lilo_conf() 
+{
+   $decho "start BD_Lilo_conf"
+   #
+   LILO_FILE=lilo.conf.$devType
+   if [ -f "$LILO_FILE" ]; then
+      #
+      # allow manual configuration, don't change it!
+      # (-or- force manual delete of previous configuration file)
+      #
+      echo -n "Using EXISTING Lilo configuration file: $LILO_FILE (y/n)?"
+      read ans
+      if [ "$ans" = "y" ] || [ "$ans" = "Y" ] ; then
+         return
+      fi
+      cp -f $LILO_FILE "$LILO_FILE".bak
+   fi
+      echo ""
+      echo "Lilo configuration file created: $LILO_FILE"
+      #
+      #  make the file first, so user can see whats happening
+      #
+      cat <<- EOF > "$LILO_FILE"
+	disk=$BD_DEV bios=0x80           # tell lilo to treat device 
+                                     #   as if we booted from it
+	boot=$BD_DEV                     # Install lilo on device
+	map=$BD_MNT/boot/map             # build map file on device file system
+	install=$BD_MNT$BD_BOOT_FN       # use boot.b file found here
+	prompt                           # show LILO prompt
+	timeout=50                       # for 5 seconds
+
+	image=$BD_MNT$BD_KERNEL          # use this image
+	      label=$BD_LABEL            # called this
+	      root=$BD_ROOT_DEV          # found here when we boot
+	      read-only                  # mount read-only to run fsck
+	EOF
+   #
+}
+
+#
+# BD_Dual_Boot - build lilo configuration file and prompt to run lilo
+#                on the booting machine
+#
+function BD_Dual_Boot()
+{
+   $decho "start BD_Dual_Boot"
+   #
+   LILO_FILE=lilo.conf.DUAL.$devType
+   if [ ! -f "$PLILO" ]; then
+      echo ""
+      echo "Lilo not found: $PLILO"
+      echo ""
+      return 1
+   fi
+   #
+   # Mount device if not mounted
+   #
+   BD_Mount
+   #
+   # use existing lilo configuration file (prompt for this ?)
+   #
+   cp /etc/lilo.conf $LILO_FILE
+   #
+   # make sure we haven't duplicated the label
+   #
+   if grep -q "label=$BD_LABEL" $LILO_FILE; then
+      echo "Can not assign same label twice: \"label=$BD_LABEL\" already exists"
+      return 1
+   fi
+   #
+   # append boot record for this device 
+   #
+   cat <<- EOF >> "$LILO_FILE"
+
+	image=$BD_MNT$BD_KERNEL          # use this image
+	      label=$BD_LABEL            # called this
+	      root=$BD_ROOT_DEV          # found here when we boot
+	      read-only                  # mount read-only to run fsck
+	EOF
+   #
+   Lilo_Verify
+   #
+   Lilo_Install
+}
+
+#
+# BD_Boot - build lilo configuration file and prompt to run lilo
+#
+function BD_Boot() 
+{
+   $decho "BD_Boot Start"
+   LILO_FILE=lilo.conf.$devType
+   if [ ! -f "$PLILO" ]; then
+      echo ""
+      echo "Lilo not found: $PLILO"
+      echo ""
+      return 1
+   fi
+   #
+   # verify device is mounted
+   #
+   BD_Mount
+   #
+   # build lilo configuration file if not already built
+   #
+   # (support for floppy fd0 where partition ID is also part of device name)
+   #
+   if [ "$devType" = "FLOPPY" ] ; then
+      BD_DEV=$BD_DEV$BD_ID
+      BD_ID=""
+   fi
+   BD_Lilo_conf
+   #
+   # verify and install  
+   #
+   Lilo_Verify
+   #
+   Lilo_Install
+} 
+
+#---------------------------------------------------
+#
+# BD_Copy
+#
+function BD_Copy()
+{
+   $decho "BD_Copy Start"
+   #
+   # make sure we are mounted
+   #
+   BD_Mount
+   #
+   # verify source directory exists
+   #
+   usedArg=0
+   if [ "$2" = "" ] ; then
+      if [ "$BD_FS" = "" ] ; then
+         BD_Usage "No source filesystem specified - use --source or -c source"
+      fi
+   else
+      if [ -d "$2" ] ; then
+         BD_FS=$2
+         usedArg=1
+      fi
+   fi
+   if [ ! -d "$BD_FS" ] ; then
+      BD_Usage "File system not found: $BD_FS"
+   fi
+   #
+   echo "" |tee -a $BD_LOG
+   echo "Executing: cp -faxv $BD_FS/* $BD_MNT"  |tee -a $BD_LOG
+   echo ""  |tee -a $BD_LOG
+   #
+   cp -faxv "$BD_FS"/* "$BD_MNT" |tee -a $BD_LOG
+   #
+   sync
+   #
+   return $usedArg
+}
+
+#
+# BD_Erase 
+#
+function BD_Erase()
+{
+   $decho "BD_Erase start "
+#
+# NOTE: do not mount until after device has been erased - supports
+#       devices with trashed or non ext2 file systems
+   #
+   echo "Creating Filesystem on $BD_DEV$BD_ID at $BD_MNT" |tee -a $BD_LOG
+   #
+   # unmount, format and re-mount it
+   #
+   BD_Unmount
+   #
+   echo "Executing: $FMT_FS $BD_DEV$BD_ID" |tee -a $BD_LOG
+   $FMT_FS $BD_DEV$BD_ID |tee -a $BD_LOG
+   #
+   BD_Mount
+   #
+   echo "Formatted and Mounted $devType at $BD_MNT" |tee -a $BD_LOG
+   #
+   return 0
+}
+
+#
+# BD_List - list files found on boot device
+#
+function BD_List() {
+#
+   $decho "BD_List started"
+   #
+   BD_Mount
+   #
+   loc=$PWD
+   cd $BD_MNT
+   #
+   # use du to list - there may be a better way
+   #
+   du . -a | cut -f2 | sort -u
+   #
+   cd $loc
+   #
+   return 0
+}
+
+#
+# BD_Assign - sets the default BD_xxx globals from given arguments
+#
+function BD_Assign()
+{
+   BD_DEV=$1
+   BD_ID=$2
+   BD_ROOT_DEV=$3
+   BD_KERNEL=$4
+   BD_MBR=$1           # default to format MBR of given device
+   #
+   # default label to kernel file name
+   #
+   if [ "$BD_KERNEL" != "" ] ; then
+      BD_LABEL=`basename $BD_KERNEL`
+   else
+      BD_LABEL=pwlinux
+   fi
+}
+
+#---------------------------------------------------
+#
+# bootDevice_main()
+#
+   #
+   # check for help request 
+   #
+   case "$1" in
+      "-h"|"--help"|"")
+         BD_Usage
+         exit 0
+         ;;  
+   esac
+   #
+   # clear the log file
+   #
+   echo -n "" > $BD_LOG
+   $decho "start mkBootDevice main"
+   #
+   # parse device type, assign defaults
+   #
+   devType="$1"
+   shift
+   case "$devType" in
+      "DOC") 
+         BD_Assign $DOC_DEV    $DOC_ID    $DOC_ROOT_DEV    $DOC_KERNEL
+         #
+         # use special patched lilo and boot.b file for Disk-On-Chip
+         #
+         if [ ! -f $DOC_LILO ] ; then
+             echo "$DOC_LILO Not found"
+             exit 1
+         fi
+         PLILO="$DOC_LILO"
+         if [ ! -f "$DOC_BOOT_FN" ] ; then
+            echo "$DOC_BOOT_FN Not found"
+            exit 1
+         fi
+         BD_BOOT_FN="$DOC_BOOT_FN"
+         ;;
+      "FLASH")
+         BD_Assign $FLASH_DEV  $FLASH_ID  $FLASH_ROOT_DEV  $FLASH_KERNEL
+         ;;
+      "FLOPPY")
+         BD_Assign $FLOPPY_DEV $FLOPPY_ID $FLOPPY_ROOT_DEV $FLOPPY_KERNEL
+         ;;
+      "CDROM")
+         BD_Assign $CDROM_DEV  $CDROM_ID  $CDROM_ROOT_DEV  $CDROM_KERNEL
+         ;;
+      *)
+         echo "Invalid device specified: $1"
+         BD_Usage
+         ;;
+   esac
+   if [ "$1" = "" ] ; then
+      BD_Usage "No operations specified"
+   fi
+   #
+   # process all parameters
+   #
+   parm=$1
+   while [ ! "" = "$parm" ] ; do
+       $decho "parse $*"
+       case "$parm" in 
+      
+          b*)   BD_Boot
+                parm=${parm##b}
+             ;;
+          c*)   BD_Copy  $*
+                if [ $? = "1" ] ; then
+                   # -c source specified on command line
+                   # (my preference over --source flag)
+                   #
+                   shift   # remove -*c option
+                   shift   # remove source location
+                   parm=$1
+                else
+                   parm=${parm##c}
+                fi
+             ;;
+          e*)   BD_Erase
+                parm=${parm##e}
+             ;;
+          l*)   BD_List
+                parm=${parm##l}
+             ;; 
+          m*)   BD_Mount
+                $decho "BD_Mount done"
+                parm=${parm##m}
+             ;;
+          "--dual-boot")
+                BD_Dual_Boot
+                shift ; parm=$1
+             ;;
+          "--label")  BD_LABEL="$2"
+                      shift ; shift ; parm=$1
+             ;;
+          "--kernel") BD_KERNEL="$2"
+                      shift ; shift ; parm=$1
+             ;;
+          "--dev-id") BD_ID="$2"
+                      shift ; shift ; parm=$1
+             ;;
+          "--device") BD_DEV="$2"
+                      shift ; shift ; parm=$1
+             ;;
+          "--mount")  BD_MNT="$2"
+                      shift ; shift ; parm=$1
+             ;;
+          "--mbr-device") 
+                      BD_MBR="$2"
+                      shift ; shift ; parm=$1
+             ;;
+          "--source") BD_FS="$2"                  # used for copy command
+                      shift ; shift ; parm=$1
+             ;;
+          "--root-dev") BD_ROOT_DEV="$2"
+                      shift ; shift ; parm=$1
+             ;;
+          "--boot-file") 
+                      BD_BOOT_FN="$2"
+                      shift ; shift ; parm=$1
+             ;;
+          "--help")   BD_Usage
+             ;;
+          -*)                                 # parse leading "-" of -xxx cmds
+                        parm=${parm##"-"}
+             ;;
+          *)         
+                      BD_Usage "Invalid Parameter: $1"
+             ;;
+       esac
+       if [ "$parm" = "" -a "$#" -gt 0 ] ; then
+          shift ; parm=$1
+       fi
+       #
+   done
+#
+#$RM $BD_LOG  #keep this around for our records
+#
+# end.
+

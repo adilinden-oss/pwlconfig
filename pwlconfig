@@ -1,13 +1,34 @@
 #! /bin/bash
 #
-# pwlconfig - script to configure and build Pee Wee Linux Projects
-#             for embedded targets
+###
+# Usage: pwlconfig [project_name] [Options]
 #
-#         Select from multiple configurations
-#         Select from packages, files within packages and custom files
-#         Build configured file system 
-#         Erase a Disk-On-Chip
-#         Load File System to a Disk-On-Chip
+#    Configure and maintain Pee Wee Linux Projects for
+#    embedded targets. Use from command line or interactively.
+#
+# Options:
+#  -B, --boot         run lilo on project device for standalone booting
+#  -D, --dual-boot    run lilo on this drive to boot to project device
+#  -E, --erase        erase and format project device
+#  -e, --extract [source_dir]
+#                     extract files to source dir from project configuration
+#  -l, --load [source_dir [ device_mount_point ]]
+#                     load extracted project source image to device
+#  -n, --new new_project_name
+#                     create a new Pee Wee Linux project
+#      --help         dislay this help and exit
+#      --version      output version information and exit
+#
+# Where:
+#    project_name     defaults to last project used
+#    new_project_name a new name for a project
+#    source_dir...    all other parameters default to project defaults
+#
+#  All other sub-menu operations are available from command line using
+#  other PWL scripts. Use --help for each tool in the scripts directory.
+###
+#
+# pwlconfig
 #
 #    Many (ok, very many) Features copied from Menuconfig script
 #    Requires lxdialog from /usr/src/linux/scripts/lxdialog
@@ -25,16 +46,15 @@
 #   The major function groups in this program are:
 #      show_xxxx   - wrapper functions that call lxdialog
 #      build_xxxx  - functions that create lists for the dialog box
-#      project_xxx - functions that maintain the project list files
-#      cmd_xxx     - functions callable from command line
-#      doc_xxx     - functions which deal with the disk on chip device
-#      menu_xxx    - handle input to toggle list items and execute commands
+#      extract_xxx - functions that extract files from project list files
+#      device_xxx  - functions which deal with the disk on chip device
+#      menu_xxx    - handle menu input to execute commands
 #
 #   Directory Structure used:
 #      Package  - location of 'tarballs' optimized for embedded systems
 #      scripts  - utility functions
 #      projects - location of user configurations and filesystems
-#      mnt      - normally where target is temporarly mounted
+#      mnt      - normally where target device is mounted
 #
 #   Project Files:
 #      project.conf - Main configuration file - any tarball listed here
@@ -42,28 +62,22 @@
 #      xxx.list     - lists the files to be extracted from each tarball
 #      .xxx.list    - configuration in progress file
 #
-#
-#   Features include:
-#      At startup, the user is prompted for a new project name (first time)
-#      from then on the last project selected is used.  
-#
-#      When a project is selected, if any existing temporary configuration
-#      files are found, the user is prompted to use the last temporary
-#      configuration or the last saved, "final" configuration.
-#
-#      Custom files are examined by date to determine if the source file
-#      is newer. The user is prompted to update these when a project is
-#      selected.
-#
-#      Packages can be categorized into directories, only packages in
-#      main package directory are enabled by default.
-#
-# To Do:
-#
-#   Support other target devices like floppies, flash disks, CDROM, etc.
-#
-#
 # History
+#    -v0.90 - Added Dual boot capability, fixed erase, use pwl usage, use
+#             project defaults where applicatable
+#    -v0.86 - maintain hidden .extract.log and .lilo.res files for debugging
+#             include device mount point (from project defaults) on Erase
+#    -v0.85 - fixed command line extraction process
+#    -v0.84 - more extraction of code
+#    -v0.82 - move Update to main menu, cleanup cleanups, proper lilo options
+#           - re-added feature to check custom source files by date
+#    -v0.8  - massive changes using multiple smaller scripts
+#    -v0.7a - speed ups and updating fixed, rm option for debug
+#    -v0.7b - use mkBootDevice script
+#    -v0.7c - split out defaults, custom and project functions into
+#             little scripts
+#    -v0.7d - added smart save, fix Update cmd for tar files
+#
 #    v0.7 - bug fixes, added Update project function, split with pwl_custom
 #    v0.6 - bug fix to support 'nearly' matching filenames, added debug utilities
 #           re-worked command line parameters and added usage statement
@@ -77,233 +91,20 @@
 #
 # Make sure we're really running bash.
 #
-[ -z "$BASH" ] && { echo "pwlconfig requires bash" 1>&2; exit 1; }
+[ -z "$BASH" ] && { echo "`basename $0` requires bash" 1>&2; exit 1; }
 #
 #  constants for this shell script
 #
-PWL_VER=0.7
-MOVE_TO_COL="echo -en \t\t"
-export debugMode="0"
+#
 export usrMode="I"
 #
-# utility programs, and directories may vary with distro or preference
+# include utility functions
 #
-export DIALOG=./scripts/lxdialog
-TAR=tar
-DOC="./scripts/doc"
-PLILO="./scripts/Lilo6_21"
-CUSTOM_CFG=./scripts/pwl_custom
+. ./scripts/pwl_functions
 #
-WHOAMI=whoami
-#
-#  constants for project directory structure
-# 
-PRJ_PATH=projects
-PKG_DIR=packages
-CUSTOM_DIR=custom
-PRJ_MNT=mnt
-PROGRAM_NAME=`basename $0`
-#
-# PWL System Files used by this shell script
-#
-HELP_FILE=./scripts/README.pwlconfig
-PRJ_LAST=$PRJ_PATH/.last.project
-#
-# Project files used by this shell script, copied in each project
-#
-CFG_Default=project.conf
-CUSTOM_LST=custom.list
-#
-# Global Variables
-#
-#  - all  project files located in PRJ_PATH / $CFG_BASE
-#
-   PWL_PRJ=
-   CFG_FILE=
-   CFG_BASE=
-   DOC_UPDATES=
-   cfgNew=0
+PWL_VER=${PWL_REL_VER}".1"
 #
 #=============================================================================
-#
-#  Utility functions
-#      set_geometry
-#      get_string
-#      debug_monitor
-#      debug_trace
-#
-# set_geometry - copied almost entirely from Menuconfig
-#
-set_geometry () 
-{
-	# Some distributions export these with incorrect values
-	# which can really screw up some ncurses programs.
-	LINES=  COLUMNS=
-	ROWS=${1:-24}  COLS=${2:-80} 
-
-	# Just in case the nasty rlogin bug returns.
-	#
-	[ $ROWS = 0 ] && ROWS=24
-	[ $COLS = 0 ] && COLS=80
-
-	if [ $ROWS -lt 19 -o $COLS -lt 80 ]
-	then
-		echo -e "\n\007Your display is too small to run pwlconfig!"
-		echo "It must be at least 19 lines by 80 columns."
-		exit 0
-	fi 
-	export ROWS=$((ROWS-4))
-	export COLS=$((COLS-5))
-}
-
-
-#
-# get_string( title, instructions,  *resultString,  [default_or_prefix] )
-#           - Create a dialog for entering a string
-#           - if a default is supplied, it is shown in the input field
-#           - returns 0 if Ok was pressed (string may be zero length)
-#           - returns 1 if Help was pressed
-#           - returns 255 if cancel or ESC was selected
-function get_string () 
-{
-   answer=""
-   #
-   # Display prompt
-   #
-   if [ $usrMode = "C" ] ; then
-      # write prompt to screen
-      echo $1
-      echo ""
-      echo -n "$2 : "
-      read answer
-      retVal="0"
-   #
-   else
-      # show default if provided
-      if [ -z "$4" ] ; then
-        defStr=""
-      else
-        defStr=$4
-      fi
-      #
-      # show dialog
-      #
-      $DIALOG --title "$1" \
-              --backtitle "$backtitle" \
-              --inputbox "$2" \
-              10 75 "$defStr" 2>.result
-      #
-      # interpret results
-      #
-      retVal=$?
-      if [ $retVal = "0" ] ; then
-         answer="`cat .result`"
-      fi
-   fi
-   # return result
-   eval $3=\"$answer\"
-   return $retVal   # help, esc or cancel entered
-}
-
-#
-# debug_monitor - allows debugging by typing commands and executing
-#                anywhere within your program.
-#                Just hit enter (blank line) to continue with program
-#
-function debug_monitor
-{
-   echo ""
-   echo -n "mon\> "
-   read x
-   while [ ! -z "$x" ] ; do
-      eval $x
-      echo ""
-      echo -n "mon\> "
-      read x
-   done
-}
-
-#
-# debug_trace ( function_to_trace )- trace a shell script function call
-#       NOTE: does not step around loops or multi-line if statements
-#
-#       Each line of the function is displayed, user can ENTER:
-#         y  - execute this line (same as pressing ENTER)
-#         n  - skip this line
-#         m  - execute this line and start the debug monitor
-#         c  - continue executing to the end of the function
-#         x  - exit this function and enter the debug monitor
-#
-function debug_trace
-{
-   # read the function and strip out the brackets
-   #
-   sed -n /"^function $1"/,/'^}'/p $PROGRAM_NAME | sed /^{/d | sed /^}/d > .dtrace
-   shift     # adjust parameters to match parameters for function call
-   #
-   #  show user what function is being traced (and don't execute 'function')
-   #
-   echo `head -1 .dtrace`
-   tail +2 .dtrace | cat > .dtrace
-   #
-   # now display the function, line by line, and handle user input
-   #
-   while [ -s .dtrace ] ; do
-      # extract the next line and remove it from the trace file
-      lineIn="`head -1 .dtrace`"
-      tail +2 .dtrace | cat > .dtrace
-      #
-      # allow user to execute non-blank lines
-      #
-      if [ ! -z "$lineIn" ] ; then
-         echo -n "trace: $lineIn  ([y],n,c,m,x)?"
-         read x
-         if [ "$x" = "x" ] ; then     # quit
-            break
-         elif [ "$x" = "m" ] ; then   # execute this one and enter debugger
-            eval $lineIn
-            debug_monitor
-         elif [ "$x" = "y" ] ; then   # execute this one
-            eval $lineIn
-         elif [ "$x" = ""  ] ; then   # execute this one
-            eval $lineIn
-         elif [ "$x" = "c" ] ; then   # continue executing to end of function
-            eval $lineIn                     # execute this line
-            cat .dtrace                      # show the rest
-            . ./.dtrace                      # and execute 'em
-            break                            # then quit
-         fi
-         # otherwise, skip this line and go to next line
-      fi
-   done
-   rm -f .dtrace
-   echo trace done
-   debug_monitor
-}
-
-#
-# debug_mode(new mode) - enable or disable debugging output features
-#
-function debug_mode()
-{
-   debugMode="$1"
-   #
-   # enable/disable debuging macros
-   #
-   if [ $debugMode = "0" ] ; then
-      decho=":"
-      dwait=
-      dmon=
-      dtrace=
-   else
-      decho=echo
-      dwait='read x'
-      dmon='debug_monitor'
-      dtrace=debug_trace
-   fi
-}
-
-#
 #=============================================================================
 #
 #  show_xxx  - uses lxdialog to show menu items
@@ -322,9 +123,9 @@ function debug_mode()
 #
 #  show_main ( main_menu_list )
 #
-function show_main() 
+function show_main()
 {
-   if [ -z "$mainDefault" ] ; then 
+   if [ -z "$mainDefault" ] ; then
       mainDefault=config
    fi
    echo -n $DIALOG --title "'Main Menu'"       \
@@ -332,244 +133,15 @@ function show_main()
                    --menu                      \
 "'Pee Wee Linux System Menu                   Project: $CFG_BASE'" \
          $ROWS $COLS $((ROWS-8))                                   \
-         "'$mainDefault' " > dialog
+         "'$mainDefault' " > .dialog
 
-   cat $1 >> dialog
-
-   . ./dialog   # use file for debugging...
-}
-   
-#
-# show_project ( select.lst ) - show checklist of projects
-#
-function show_project()
-{
-   if [ -z "$projectDefault" ] ; then
-      projectDefault=Add
-   fi
-   echo -n $DIALOG --title "'Select Project Menu'" \
-                   --backtitle "'$backtitle'"      \
-                   --menu                          \
-"'Select Project to use                       Project: $CFG_BASE'" \
-              $ROWS $COLS $((ROWS-8))                              \
-             "'$projectDefault'" > dialog
-
-   cat $1 >> dialog
-   . ./dialog
+   cat $1 >> .dialog
+   #
+   # execute and return results
+   #
+   . ./.dialog
 }
 
-#
-# show_packages ( files.lst ) - show list of all packages available
-#
-function show_packages() 
-{
-   if [ -z "$packageDefault" ] ; then
-      packageDefault=Unique
-   fi
-   echo -n $DIALOG --title "'Configure Packages Menu'" \
-                   --backtitle \"$backtitle\"          \
-                   --menu                              \
-"'Select Package to Configure.                Project: $CFG_BASE'" \
-              $ROWS $COLS $((ROWS-8))                              \
-              "'$packageDefault'"  > dialog
-   cat $1 >> dialog
-
-   . ./dialog
-}
-
-#
-# show_files ( title,  pack.lst ) - show checklist of files within a package
-# 
-function show_files() 
-{
-   if [ -z "$filesDefault" ] ; then
-      filesDefault=Add
-   fi
-   echo -n $DIALOG --title "$1" \
-                   --backtitle \"$backtitle\"       \
-                   --menu                           \
-"'Select files to include                           Project: $CFG_BASE'" \
-              $ROWS $COLS $((ROWS-8)) \
-              "'$filesDefault'" > dialog
-
-   cat $2 >> dialog
-   . ./dialog
-}
-
-#
-# show_results ( file, title )  - display results file 
-#
-function show_results () 
-{
-   if [ -f "$1" ] ; then
-      cp $1 .show_result
-      if [ -z "$2" ] ; then
-         resTitle="Results"
-      else
-         shift
-         resTitle="$*"
-      fi
-      #
-      # -- lxdialog / text box has a few bugs
-      #    ...if you page down in a 2+ page file, the
-      #    dialog is not properly cleared..use arrow keys to view
-      #    to the end of the file.
-      #    ...if you don't have the file in the calling directory, the
-      #    terminal never clears properly
-      #
-      $DIALOG --title "$resTitle"        \
-              --backtitle "$backtitle"  \
-              --textbox .show_result $ROWS $COLS
-      rm -f .show_result
-   fi
-}
-
-#
-# show_message ( title, message [,height] ) - display a short message
-#
-function show_message () 
-{
-   if [ ! "$usrMode" = "I" ] ; then
-      echo ""
-      echo $1
-      echo $2
-      return
-   fi
-   height=7
-   if [ ! -z "$3" ] && [ $3 -lt "$ROWS" ] && [ $3 -gt 7 ] ; then
-            height="$3"
-   fi
-   #
-   echo "$2" > .result
-   $DIALOG --backtitle "$backtitle" --title "$1"\
-           --msgbox "$2" $height $((COLS-20))
-
-   # --msgbox is undocumented feature of lxdialog (see the source vs help)
-   # but wraps text lines nicely
-}
-
-#
-# show_help - shows individual help screens or defaults to readme
-#
-function show_help () 
-{
-
-   if [ -f "$HELP_FILE" ] && [ $1 != "" ] ; then
-      #
-      # get help text, delimited by "menu_xxx" and "END"
-      #
-      sed -n /$1/,/^END/p $HELP_FILE | grep -v "^$1" | grep -v "^END" > .result
-      if [ -s ".result" ] ; then   # help was found
-         #
-         # get help title
-         #
-         title="Help for: `grep "^$1" $HELP_FILE | cut -d" " -f2-`"
-         show_results .result $title
-         return
-      fi
-   fi
-   #
-   # if no specific help found, display file or error message
-   #
-   if [ -f "$HELP_FILE" ] ; then
-      show_results "$HELP_FILE" "Pwlconfig Overview"
-
-   else
-      echo "No help available. Could not find $HELP_FILE" > .result
-      show_results .result "Pwlconfig Help file not found !"
-   fi
-}
-
-
-#
-# show_confirm ( title, message [,height] ) - display a short message
-#                                      with yes/no response buttons
-#
-#    returns 0 = 'Y'  1 for 'N' or 255 for 'Esc'
-#
-function show_confirm () 
-{
-   if [ ! "$usrMode" = "I" ] ; then
-      return 0                     # default to Yes
-   fi
-   height=7
-   if [ ! -z "$3" ] && [ $3 -lt "$ROWS" ] && [ $3 -gt 7 ] ; then
-            height="$3"
-   fi
-   #
-   $DIALOG --backtitle "$backtitle" --title "$1"\
-           --yesno "$2" $height  $((COLS-20))
-}
-
-
-#
-# dir_tree_list_all( dir_root, [ resultsFile ] )
-#         - builds a list of all files found in the given dir_root
-#
-function dir_tree_list_all()
-{
-   loc=$PWD
-   cd $1
-   #
-   # list files, remove file size and leading dot, remove blank lines
-   #
-   du . -a | cut -f2 | cut -d. -f2- | sed /^$/d | sort -u > $loc/.result
-   #
-   cd $loc
-   #
-   # update to given file if specified
-   #
-   if [ ! -z "$2" ] ; then
-      cp $loc/.result $2
-   fi
-}
-
-
-#
-# tar_files_list_all( dir_root, tar_list_file [ results_file] )
-#        - builds a list of all files stored in every tar file list file
-#              specified in tar_list
-#          list is formatted as:  source_tar_file  filename
-#
-function tar_files_list_all()
-{
-   echo "" > .result
-   #
-   for listFn in `cat $2`; do
-      tarBn=`basename $listFn .list`
-      tarDir=`dirname $listFn`
-      #
-      # build 'source_tar_file  filename'
-      #
-      if [ -f $1/$listFn ]; then
-         # I don't think this works! directories contain special chars
-         #
-         sed 's/^/$tarDir\/$tarBn /g' $1/$listFn >> .result
-      fi
-   done
-   if [ ! -z "$3" ] ; then
-      cp .result $3
-   fi
-}
-
-#
-# config_files_list_all( resultsFile )
-#
-function config_files_list_all()
-{
-   echo "" > .result
-   for cfgFn in `ls $PWL_PRJ/*.list 2> /dev/null` ; do
-      #
-      cat $cfgFn >> .result
-   done
-   #
-   # make sure we prefix all file names with '/'
-   #   sed - (s) substitute any line whose (^)1st character
-   #             [^ ] is not already a '/' with a '/' and (&)the entire line
-   cat .result | sed 's/^[^\/]/\/&/' | sort -u > $1
-}
-
-#
 #=============================================================================
 #
 # build_main( main_menu_list )
@@ -577,811 +149,34 @@ function config_files_list_all()
 #
 function build_main()
 {
-   echo -n "'config'  'Configure Project File System --->'            \
-            'makefs'  'Extract File System for Project --->'          \
-            'skip'    '----'                                          \
-            'erase'   'Erase Disk-On-Chip --->'                       \
-            'load'    'Load File System onto Disk-On-Chip --->'       \
-            'install' 'Install LInux LOader (LILO) to Disk-On-Chip'   \
-            'skip'    '----'                                          \
-            'save'    'Save Project'                                  \
-            'select'  'Manage Projects --->'                       " > $1
-}
-
-#
-# build_project - create list of project operations and projects to choose from
-#
-function build_project () 
-{
-   #
-   # insert Add, Copy and  Remove operations in menu
-   #
-   echo -n " 'Add'    'Create a New Project -->'  "        > $1
-   #
-   # Make sure project environment is set up
-   #
-   if [ ! -d "$PRJ_PATH" ] ; then
-      mkdir "$PRJ_PATH"
-   else
-      if [ ! -z "$CFG_BASE" ] ; then
-         echo -n " 'Copy'   'Copy \"$CFG_BASE\" to New Project -->' " >> $1
-         echo -n " 'Remove' 'Remove Project \"$CFG_BASE\" -->' " >> $1
-         echo -n " 'Update' 'Update \"$CFG_BASE\" from file system --> ' " >> $1
-         echo -n " 'skip'   '------' " >> $1
-      fi
-      #
-      # list all project files found in project directory 
-      #
-      for prjName in `ls "$PRJ_PATH"/` 
-      do
-         #
-         if [ ! -z "$prjName" ] ; then
-            prjFn=`basename $prjName`
-            if [ $prjFn = "$CFG_BASE" ] ; then
-               echo -n " '$prjFn' '[*] $prjFn' " >> $1
-            else
-               echo -n " '$prjFn' '[ ] $prjFn' " >> $1
-            fi
-         fi
-      done 
-   fi
-   $decho "end build_project"
-}
-
-#
-# build_package( tar_list, pkgdir ) - creates list of all packages
-#     (xxx.tar files) found in given package directory, and all subdirectories
-#                "flags" packages enabled for this configuration
-#
-function build_package()
-{
-   #
-   # if no temporary configuration create temporary configuration file
-   # from previous configuration
-   #
-   if [ ! -f "$CFG_FILE".tmp ] ; then
-      cp "$CFG_FILE" "$CFG_FILE".tmp
-   fi
-   #
-   #  allow custom files operation
-   #
-   echo -n " 'Unique' 'Configure Custom files for \"$CFG_BASE\" -->' " > $1
-   echo -n " 'Skip'   '----' " >> $1
-   #
-   # list all subdirectories files found in packages directory
-   #
-   gotOne=0
-   for pkgDirName in `find $2 -type d | sort`;
-   do
-      #
-      # show directory names (except root of this directory)
-      #
-      pkgDir=`dirname $pkgDirName`
-      pkgDirBase=`basename $pkgDirName`
-      if [ "$pkgDirName" != "$2" ] ; then
-         echo -n " '$pkgDirName' '$pkgDirBase --> ' " >> $1
-         gotOne=1
-      fi
-   done
-   if [ "$gotOne" = "1" ] ; then
-      echo -n " 'Skip' '----' " >> $1
-   fi
-   #
-   # list all tar files found in packages directory (if any)
-   #
-   if [ ! -z "`ls $2/*.tar 2> /dev/null`" ] ; then
-      echo -n " 'Add'    'Include all packages' " >> $1
-      echo -n " 'Remove' 'Exclude all packages' " >> $1
-      for tarFn in `ls $2/*.tar 2> /dev/null`;
-      do
-         echo -n "."   # show user we are doing something
-         #
-         # parse tar file names for base file name
-         #
-         baseFn=`basename $tarFn .tar`
-         #
-         #  if base filename is already in the configuration file, flag it
-         #  (list file names must match exactly)
-         #
-         if grep -q "$baseFn"\.list$ "$CFG_FILE".tmp  ; then
-            echo -n  "'$tarFn' '[*] $baseFn " >> $1
-         else
-            echo -n  "'$tarFn' '[ ] $baseFn " >> $1
-         fi
-         if [ -s $PWL_PRJ/.$baseFn".list" ] ; then
-            echo -n " ~~ " >> $1                    # flag temp configured
-         elif [ -s $PWL_PRJ/$baseFn".list"  ] ; then
-            echo -n " ** " >> $1                    # flag as configured
-            # could show total package size, if added to .list file
-         fi
-         echo -n "--->' " >> $1
-      done
-   fi
-   $decho "end build_package"
-}
-
-#
-# build_files_verify ( package )
-#   Create list files that identify what files are contained in a package
-#   - initial list file - stored with package, lists all files (created once)
-#   - default list file - stored in project, default is "none selected"
-#   - temporary list file - current configuration of files with project
-#
-function build_files_verify() 
-{
-   pkgDir=`dirname $1`
-   pkgFn=`basename $1 .tar`      # remove extension .tar or .list
-   pkgFn=`basename $pkgFn .list`
-   #
-   # sanity check - package file must exist!
-   #
-   if [ ! -f $pkgDir/$pkgFn".tar" ] ; then
-      echo Error Invalid package file: $1
+   $decho "start build_main"
+   if [ "$deviceName" = "" ] ; then
+      echo Internal error - set device
       exit 0
    fi
-   #
-   # check that list file matching the tar file exists or create it
-   #
-   if [ ! -f $pkgDir/$pkgFn".list" ] ; then
-      $TAR -tf $pkgDir/$pkgFn".tar" > $pkgDir/$pkgFn".list"
-   fi
-   #
-   # make sure a default list file exists within the project
-   #
-   if [ ! -f $PWL_PRJ/$pkgFn".list" ] ; then
-      cp $pkgDir/$pkgFn".list" $PWL_PRJ/$pkgFn".list"
-   fi
-   #
-   #  See if this package has a temporary configuration file
-   #
-   if [ ! -f $PWL_PRJ/.$pkgFn".list" ] ; then
-      cp $pkgDir/$pkgFn".list" $PWL_PRJ/.$pkgFn".list"
-   fi
-   $decho "end build_files_verify"
-}
 
-#
-# build_pkg_list (package_name, package.list  )
-#        - creates pack.list file of all files available in tar package
-#          flags status based on status_file (temporary copy of enabled
-#          files)
-#
-function build_pkg_list() 
-{
-   pkgDir=`dirname $1`
-   pkgFn=`basename $1 .tar`
+   echo -n "'PkgConfig' 'Configure Project File System -->'             \
+            'Update'    'Update \"$CFG_BASE\" from File System --> '    \
+            'Extract'   'Extract File System for Project'               \
+            'skip'      '----'                                          \
+            'Erase'     'Erase $deviceName at $deviceLoc$devicePartition' \
+            'Load'      'Load File System onto $deviceName'             \
+            'Dual'      'Allow this system to dual-boot $deviceName'    \
+            'Lilo'      'Install LInux LOader (LILO) to $deviceName'    \
+            'skip'      '----'                                          \
+            'PrjManage' 'Manage Projects -->'                           \
+            'Save'      'Save Project'                                 "> $1
    #
-   #  Include options to add or remove all files from this package 
-   #
-   echo -n " 'Add'     'Include all files from \"$pkgFn\" package'  "     >   $2
-   echo -n " 'Remove'  'Exclude all files from \"$pkgFn\" package ' "  >>  $2
-   #
-   # List size of files in this tarball 
-   #   (only list regular files | set fields to one space only | remove permisions and owners fields)
-   #
-   $TAR -tvvf $pkgDir/$pkgFn".tar" | grep "^-" | sed "s/  */ /g" | cut -d" " -f3- > .result
-   #
-   #  for each file stored in the tar file, see if it is enabled for this
-   #     configuration
-   #
-   totalSz=0
-   for sysFn in `cat $pkgDir/$pkgFn".list"`; do
-      echo -n "."   # show user we are doing something
-      #
-      # read filesize for this file (file size must be at start of line)
-      #
-      if grep -q $sysFn$ .result ; then
-         fileSz=`grep $sysFn$ .result | cut -d" " -f1`
-      else
-         fileSz=0
-      fi
-      #
-      # if file is in the status list file then flag it
-      #  note: directories match every file and toggle all files in that directory
-      #
-      if grep -q $sysFn "$PWL_PRJ"/.$pkgFn".list" ; then
-        echo -n "'$sysFn' '[*] $sysFn "  >> $2
-        totalSz=`expr $totalSz + $fileSz`
-      else
-         echo -n "'$sysFn' '[ ] $sysFn " >> $2
-      fi
-      if [ $fileSz -gt 0 ] ; then
-         echo -n "  $fileSz" >> $2
-      fi
-      echo -n "' " >> $2
-   done
-   echo -n "'Total' 'Estimated Total for selected files: $totalSz' " >> $2
-   $decho "build_pkg_list"
-}
-
-#
-#  build_custom - maintain a list of custom files to be included in project
-#
-function build_custom ()
-{
-   #
-   # always insert Add  operation in menu
-   #
-   echo -n " 'Define' 'Add custom files to \"$CFG_BASE\" -->'  " > $1
-   #
-   # list all custom files currently found in custom directory
-   #
-   dir_tree_list_all "$PWL_PRJ/$CUSTOM_DIR"
-   if [ ! -s .result ] && [ ! -s "$PWL_PRJ/$CUSTOM_LST" ]; then
-      # no custom files found
-      return
-   fi
-   #
-   # custom files found, insert operations
-   #
-   echo -n " 'Delete' 'Delete custom files from \"$CFG_BASE\" -->' " >> $1
-   echo -n " 'Skip'   '----' " >> $1
-   echo -n " 'Add'    'Include all custom files' " >> $1
-   echo -n " 'Remove' 'Exclude all custom files' " >> $1
-   #
-   #  show all files listed, flag'em if they are on the list
-   #
-   totalSz=0
-   for customFn in $(cat .result); do
-      #
-      echo -n "."   # show user we are doing something
-      if [ ! -z "$customFn" ] ; then
-         #
-         # don't show or add directory size
-         #
-         if [ ! -d "$PWL_PRJ/$CUSTOM_DIR"/"$customFn" ] ; then
-            fileSz=`du -bs "$PWL_PRJ/$CUSTOM_DIR"/"$customFn" | cut -f1`
-         else
-            fileSz=0
-         fi
-         #
-         # flag 'em if we got 'em
-         #
-         if grep -q $customFn "$PWL_PRJ/.$CUSTOM_LST" ; then
-            echo -n " '$customFn' '[*] $customFn " >> $1
-            totalSz=`expr $totalSz + $fileSz`
-         else
-            echo -n " '$customFn' '[ ] $customFn" >> $1
-         fi
-         #
-         # show size if not zero
-         #
-         if [ $fileSz -gt 0 ] ; then
-            echo -n "  $fileSz" >> $1
-         fi
-         echo -n "' " >> $1
-      fi
-      #
-   done
-   #
-   echo -n " 'Total' 'Estimated total bytes for selected files: $totalSz' " >> $1
-
-   $decho "end build_custom"
-}
-
-#
-#=============================================================================
-#
-# project_default - creates initial project environment
-#     -   PRJ_PATH   -   "projects"
-#     --  PWL_PRJ    -   "projects/project_name"
-#     --  CFG_FILE   -   "projects/project_name/project.conf
-#     --- CUSTOM_DIR -   "projects/project_name/custom
-#     --- PRJ_MNT    -   "projects/project_name/mnt
-#
-function project_default()
-{
-   # Setup up main directory for projects
-   #
-   if [ ! -d "$PRJ_PATH" ] ; then
-      mkdir -p "$PRJ_PATH"
-   fi
-   #
-   # for new projects, create the project directory
-   #
-   if [ ! -d "$PWL_PRJ" ] ; then
-      mkdir -p "$PWL_PRJ"
-   fi
-   #
-   # if no current configuration file, create initial configuration
-   #
-   if [ ! -f "$CFG_FILE" ] ; then
-      project_package_default $CFG_FILE $PKG_DIR
-   fi
-   #
-   # Make sure custom environment is set up
-   #    -- CUSTOM_DIR holds all custom files and directories
-   #
-   if [ ! -d "$PWL_PRJ"/"$CUSTOM_DIR" ] ; then
-      mkdir -p "$PWL_PRJ"/"$CUSTOM_DIR"
-   fi
-   #
-   # Create mount point for project file system
-   #
-   if [ ! -d "$PWL_PRJ"/"$PRJ_MNT" ] ; then
-      mkdir -p "$PWL_PRJ"/"$PRJ_MNT"
-   fi
-   $decho "end project_default"
-}
-
-#
-# project_assign - sets environment for given project
-#
-function project_assign ()
-{
-   if [ "$1" = "" ] ; then
-      echo "Invalid project specified"
-      exit 0
-   fi
-   #
-   # CFG_BASE is the Project name
-   #
-   eval CFG_BASE=$1
-   #
-   # reset these variables for new project directory
-   #
-   export PWL_PRJ="$PRJ_PATH"/"$CFG_BASE"
-   CFG_FILE="$PWL_PRJ"/"$CFG_Default"
-   DOC_UPDATES="$PWL_PRJ"/"$CUSTOM_DIR"
-   #
-   #  create a default project if one does not exist
-   #
-   project_default
-   #
-   # remember the last project selected
-   #
-   echo $CFG_BASE > "$PRJ_LAST"
-   #
-   # check for previous "temporary" configuration
-   #
-   if [ -f "$CFG_FILE".tmp ] || [ -f "$PWL_PRJ/.*.list" ] ; then
-      #
-      show_confirm \
-"Use Previous Configuration Changes ?" \
-"Project: \"$CFG_BASE\" contains \"temporary\" configuration changes that were not saved.  \
-To continue with these changes, select 'Yes'.  To Erase these changes and \
-start from your last \"saved\" configuration select 'No'."  10
-      #
-      if [ $? = "1" ] ; then
-         echo Old Configuration removed for project $CFG_BASE
-         #
-         # remove .tmp and .xxx.list files from project
-         rm -f "$CFG_FILE".tmp
-         rm -f "$PWL_PRJ"/.*.list
-         #
-         cfgNew=0    # flag as clean
-      else
-         cfgNew=1    # flag to save on exit
-      fi
-   fi
-   #
-   # verify dates on custom files, prompt to update if required
-   #
-   $CUSTOM_CFG update
-   #
-   $decho "end project_assign"
-}
-
-#
-# project_new( [ new name ] ) - prompts user and creates new project
-#
-function project_new()
-{
-   # create a new project
-   if [ "$1" = "" ] ; then
-      #
-      # prompt for project name if not provided
-      #
-      get_string "Create New Project" \
-                 "Enter name of new Project to Create" \
-                 "newName"
-      if [ $? != "0" ] ; then
-         return
-      fi
-   fi
-   #
-   if [ ! -z "$newName" ] ; then
-      #
-      #  set temp variable to new path/name
-      #
-      newDir="$PRJ_PATH"/"$newName"
-      #
-      # create a new configuration
-      #
-      if [ -d $newDir ] ; then
-      #
-         show_message "Error: Could not create Project" \
-                      "Project \"$newDir\" Already Exists"
-      else
-         #
-         #  setup new project
-         #
-         project_assign $newName
-         #
-         # set default mount point ??
-         #
-         $decho "end project_new 1"
-         return 1
-      fi
-   fi
-   $decho "end project_new 0"
-   return 0
-}
-
-#
-# project_remove - prompts user and removes current project
-#
-function project_remove()
-{
-   #
-   if [ ! -d "$PWL_PRJ" ]; then
-      show_message "Error: Could Not Remove Project" \
-                   "Project \"$CFG_BASE\" not found"
-   else
-      show_confirm "Remove Project" \
-                   "Really remove project \"$CFG_BASE\" ? "
-      if [ $? = "0" ]; then
-         #
-         rm -fR $PWL_PRJ
-         #
-         #  reset to empty project
-         #
-         CFG_BASE=""
-      fi
-   fi
-   $decho "project_remove"
-}
-
-#
-# project_copy - prompts user for new project name to copy current project
-#
-function project_copy()
-{
-   #
-   get_string "Copy Project" \
-              "Enter name of new Project to Create" \
-              "newName"
-   if [ $? != "0" ] ; then
-      return
-   fi
-   #
-   if [ ! -z newName ]; then
-      #
-      newDir="$PRJ_PATH"/"$newName"
-      #
-      # create a new configuration
-      #
-      if [ -d $newDir ] ; then
-      #
-         show_message "Error: Could not Copy Project" \
-                      "Project \"$newDir\" Already Exists"
-      else
-         # copy project directory
-         #
-         cp -ax $PWL_PRJ $newDir
-         #
-         # change default project to the copy
-         #
-         project_assign $newName
-      fi
-   fi
-   $decho "end project copy"
-}
-
-#
-# project_package_default( listFile, dir, Create_or_Remove )
-#    Creates a new 'listFile' from all "tarball" packages found in
-#      the given directory 'dir', and either:
-#        - create - copy default list file to project
-#        - Remove - remove names of files from listFile (previous selections
-#                   of individual files remain in project directory)
-#
-function project_package_default()
-{
-     #
-     #  list files found in the package directory
-     #
-     for lstFile in `ls $2/*.list 2> /dev/null` ; do
-        #
-        # copy or remove list files from current configuration
-        #
-        if [ "$3" = "Remove" ]; then
-           grep -v "$lstFile"$ $1 > .result
-           cp .result $1
-        else
-           echo $lstFile >> $1
-           build_files_verify "$lstFile"  #create config files as required
-        fi
-     done
-     cat $1 | sort -u | cat > .result
-     cp .result $1
-  $decho "done project_package_default"
-}
-
-#
-# compare custom files with file at mount point
-#
-function project_refresh_custom()
-{
-   #
-   # compare dates of files to see if original is newer
-   #
-   if [ $mntName -nt $PWL_PRJ/$CUSTOM_DIR/$chkFn ] ; then
-      #
-      # The orginal custom file is newer than project custom file
-      #
-      $decho "Original CUSTOM file is newer than $chkFn"
-      #
-      # Show user the information about both files for an informed decision
-      #
-      destInfo="`find $PWL_PRJ/$CUSTOM_DIR/$chkFn -printf "%s   %t   %p     "`"
-
-      srcInfo="`find $mntName -printf "%s   %t   %p     "`"
-      #
-      show_confirm "Replace Custom file: $chkFn ?" \
-          "Replace Old Custom File: $destInfo With Newer file: $srcInfo ?"
-
-      if [ $? = "0" ] ; then  # yes, replace it
-         #
-         # User confirmed, refresh the file
-         $CUSTOM_CFG add $mntName $chkFn
-         #
-      fi
-   else
-      $decho "Custom Files same date"
-   fi
-   $decho "done project_refresh_custom"
-}
-
-#
-# project_refresh_package( mntName, package_list_name, filename )
-#
-function project_refresh_package()
-{
-   mntName=$1
-   pkgListFn=$2
-   chkFn=$3
-   #
-   # find subdirectory tar file is in (as specified in project config)
-   #
-   listFn=`basename $pkgListFn .list`
-   pkgDirFn=`grep $listFn $CFG_FILE`
-   #
-   pkgFn=`basename $pkgDirFn .list`.tar
-   pkgDir=`dirname $pkgDirFn`
-   #
-   echo package file $chkFn is from tar file: $pkgDir $pkgFn
-
-   #
-   if [ ! -f $pkgDir/$pkgFn ] ; then
-      echo package file $pkgDir $pkgFn not found
-   else
-      #
-      # check date of tarred file (extract and compare files - SLOW!)
-      #
-      $TAR -x -C "/tmp" -f $pkgDir/$pkgFn $chkFn
-      #
-      if [ $mntName/$chkFn -nt "/tmp/"$chkFn ] ; then
-         #
-         # Update custom directory "source" files for this project
-         #
-         echo Newer PACKAGE file found $chkFn
-         #
-         destInfo="`find "/tmp/"$chkFn   -printf "%s   %t  "`"
-         srcInfo="`find $mntName/$chkFn  -printf "%s   %t  %p   "`"
-         #
-         show_confirm "Replace Old file: $chkFn ?" \
-         "Replace Old Packaged File: $destInfo $pkgFn[ $chkFn ] With Newer Custom file: $srcInfo ?"
-
-         if [ $? = "0" ] ; then  # yes, add file
-            #
-            $CUSTOM_CFG add $mntName $chkFn
-
-			$decho "added  $chkFn to .$CUSTOM_LST file"
-            #
-            # disable file from package configuration
-            #
-            grep -v $chkFn $pkgListFn > .result
-            cp -aux .result .$pkgListFn
-
-            #
-            # Note: No source file will be specified
-         fi
-      else
-         echo Tarred File $chkFn same date as mounted files
-      fi
-   fi
-   $decho "done project_refresh_package"
-}
-
-#
-# project_refresh( mntPoint, pkgListFn )
-#     check all the files listed in "pkgListFn", prompt to update
-#
-function project_refresh()
-{
-   mntName=$1
-   pkgListFn=$2
-   echo Checking $pkgListFn
-   #
-   # check each file included in the package configuration
-   #
-   for chkFn in `cat $pkgListFn`; do
-      echo "checking file $chkFn"
-      #
-      #
-      #
-      if [ -d "$mntName/$chkFn" ] ; then
-         echo  not checking directories
-         xx=1
-      elif [ ! -f "$mntName/$chkFn" ] ; then           # user erased file
-         #
-         #  remove this file from configuration list file
-         #
-         echo Package File $chkFn not found at $mntName
-         show_confirm "Exclude File: $chkFn ?"
-                   "This File System does not include: $chkFn  Do you want to exclude it from your Configuration ? "
-
-         if [ $? = "0" ] ; then    # then exclude it
-            # make sure temporary configuration file exists
-            #
-            if [ ! -f $PWL_PRJ/.$pkgListFn ] ; then
-               cp $PWL_PRJ/$pkgListFn $PWL_PRJ/.$pkgListFn
-            fi
-            grep -v "$chkFn" $PWL_PRJ/.$pkgListFn > .result
-            cp .result $PWL_PRJ/.$pkgListFn
-
-         fi
-      #
-      # Check to see if configured file is a custom file
-      #
-      elif [ -f $PWL_PRJ/$CUSTOM_DIR/"$chkFn" ] ; then
-
-         project_refresh_custom $mntName $chkFn
-      #
-      # else compare file date with date of file in package
-      #
-      else
-         project_refresh_package $mntName $pkgListFn $chkFn
-
-      fi
-      # $dmon
-   done
-
-   $decho "done project_refresh"
-}
-
-#
-#  project_custom_remove
-#
-function project_custom_remove ()
-{
-   #
-   # prompt
-   #
-   gotOne=0
-   while [ $gotOne = "0" ]
-   do
-      get_string "Delete Custom File(s)" \
-              "Enter path and name of custom file or directory:" \
-              "srcName" $1
-      if [ $? != "0" ] ; then
-         return 0
-      fi
-      #
-      if [ -z "$PWL_PRJ"/"$CUSTOM_DIR"/$srcName ] ; then
-         return 0
-      fi
-      if [ ! -e "$PWL_PRJ"/"$CUSTOM_DIR"/$srcName ] ; then
-         show_message "File Not Found" " Check path and name and guess again"
-      else
-         gotOne=1
-      fi
-   done
-   #
-   # confirm remove
-   #
-   show_confirm "Removing Custom File(s) ! CAN NOT BE UNDONE ! "\
-                   "Really remove Custom file(s) $srcName from project ?"
-
-   if [ $? = "0" ] ; then
-      #
-      # kill'em, kill'em all - kill kIll KILL
-      #
-      $CUSTOM_CFG delete $srcName
-
-   fi
-   $decho "end project_custom_remove"
-}
-
-#
-# project_custom_new - creates new custom files and records process
-#
-function project_custom_new()
-{
-   #
-   # prompt for source and destination
-   #
-   gotOne=0
-   while [ $gotOne = "0" ]
-   do
-      # prompt user for source location,
-      get_string "Add Custom File(s)" \
-              "Enter path to source file or directory:" \
-              "srcName"
-      if [ $? != "0" ] ; then
-         return 0
-      fi
-      # ignore if ESC, help or blank line entered
-      if [ -z "$srcName" ] ; then
-         $decho "end project_custom_new 0 (no source)"
-         return 0
-      fi
-      # valid only if file exists
-      if [ ! -e "$srcName" ] ; then
-         show_message "File Not Found" " Check path and name and guess again"
-      else
-         gotOne=1
-      fi
-   done
-   #
-   # likewise, get destination location
-   #
-   gotOne=0
-   while [ $gotOne = "0" ]
-   do
-      #
-      # prompt user for a destination
-      #
-      get_string "Add Custom File(s)" \
-              "Enter path and name (from root) of final destination" \
-              "destName" "/"
-      #
-      # do nothing if "esc" key, help or blank name entered
-      #
-      if [ $? != "0" ] ; then
-         return 0
-      fi
-      if [ -z "$destName" ] ; then
-         $decho "end project_custom_new 0 (no dest)"
-         return 0
-      fi
-      #
-      # check to see if we are overwriting any existing files
-      #
-      if [ -e "$PWL_PRJ"/"$CUSTOM_DIR""$destName" ] ; then
-         show_confirm "Destination File(s) exist" \
-                       "Overwrite files in $CUSTOM_DIR$destName ?"
-         if [ $? = "0" ] ; then
-            # valid destination confirmed to overwrite
-            gotOne=1
-         fi
-      #
-      else
-         # valid destination
-         gotOne=1
-      fi
-   done
-   #
-   # Update the custom list configuration
-   #
-   $CUSTOM_CFG source $srcName $destName
-   #
-   # Tell user how happy we are now
-   #
-   show_message "Custom files from $srcName" \
-                "Added to project at $destName"
-   #
-   $decho "end project_custom_new 1"
-   return 1
+   $decho "end build_main"
 }
 
 #=============================================================================
 #
-# project_extract_custom( mountPoint ) - copy custom files to mount point
+# extract_custom( mountPoint ) - copy custom files to mount point
 #
-function project_extract_custom ()
+function extract_custom ()
 {
+   $decho "start extract_custom"
    echo ""
    fileCount=0
 
@@ -1390,9 +185,9 @@ function project_extract_custom ()
       echo "Copying Custom files as specified in $PWL_PRJ/$CUSTOM_LST "
       echo ""
       #
-      $CUSTOM_CFG extract $1 2> .return
+      $PWL_CUSTOM --extract $1 2> .return
       read fileCount < .return
-      rm -rf .return
+      $RM -rf .return
 
    fi
    if [ "$fileCount" = "0" ] ; then
@@ -1404,13 +199,19 @@ function project_extract_custom ()
       echo ""
    fi
    echo ""
+   $decho "end extract-custom"
+   $RM .return
 }
 
 #
-# project_extract ( mountPoint )
+# extract_packages ( mountPoint )
+#    Extracts all files specified in a project configuration
+#    Every package file listed in CFG_FILE is extracted based on the
+#    files listed in that package's <pkg_fn>.list included in the project
 #
-function project_extract()
+function extract_packages()
 {
+   $decho "start extract_packages"
    echo -n Extracting files from:
    $MOVE_TO_COL
    echo as specified in:
@@ -1419,6 +220,9 @@ function project_extract()
    loc=$PWD
    ln=1
    #
+   if [ ! -f $CFG_FILE ] ; then
+      return
+   fi
    for nfile_lst in `cat $CFG_FILE`; do
        #
        # each list file needs it's tar ball untarred at mount point
@@ -1439,11 +243,7 @@ function project_extract()
           cd $1
           echo -n $tar_file
           $MOVE_TO_COL
-          echo "$PWL_PRJ"/"$lst_file"
-          #
-          # and output to std err so user can watch it happen
-          #
-          echo Extracting files specified in: "$PWL_PRJ"/"$lst_file" >&2
+          echo "$CFG_BASE"/"$lst_file"
           #
           # seperate directories and file  (dirs are names that end in '/')
           #  'cause extracting a directory extracts all files found in that directory
@@ -1468,731 +268,302 @@ function project_extract()
           # do the actual extraction (-p keeps permmissions)
           # -k does not write over existing files
           # ( Note: tar still gives errors on empty directories that
-          #         contain empty directories..you just can't win)
+          #         contain empty directories..you just can't win :()
           #
-          $TAR -xpkf "$loc"/"$pkgDir"/"$tar_file" -T "$loc"/.cfg_files
+          $TAR -xpkf "$loc"/"$pkgDir"/"$tar_file" -T "$loc"/.cfg_files 2>&1
 
           cd $loc
        fi
        #
-       ln=`expr $ln + 1`    # increment line counter
+       ln=`expr $ln + 1`    # increment line counter for debugging
    done
    cd $loc
-   rm -f .tmp .cfg_files .cfg_dirs
+   #
    echo ""
    echo " Total Size of Package Files extracted: `du $1 -bsh` "
    echo ""
-}
-
-#=============================================================================
-#
-# cmd_update_configuration
-#    allows project configuration files
-#    to be updated from an existing file system
-#
-function cmd_update_configuration()
-{
-   mntName=$1
-   if [ $usrMode = "I" ] ; then
-      get_string "Update Project $CFG_BASE" \
-                 "Enter path and name of mount point:" \
-                 "mntName" "$mntName"
-      if [ $? = "255" ] ; then
-         return
-      fi
-   fi
-   if [ -z "$mntName" ] || [ ! -d "$mntName" ] ; then
-      show_message "Mount Point Not Found" \
-                   "Mounted File System not found at $mntName"
-      if [ $useMode ="I" ] ; then
-         return             # let user specify another mount point
-      else
-         exit 1             # exit with error
-      fi
-   fi
    #
-   # Check configured files - refresh from the given mount point
-   #
-   for pkgListFn in `ls $PWL_PRJ/*.list 2> /dev/null`; do
-      project_refresh $mntName $pkgListFn
-
-   done
-   #
-   # Check that all mounted files are mentioned in the configuration files
-   #
-   dir_tree_list_all $mntName mntList
-   config_files_list_all cfgList
-   $dmon
-   #
-   for mntFn in `cat mntList` ; do
-      if ! grep -q $mntFn cfgList ; then
-         echo file $mntFn not part of configuration
-         #
-         show_confirm "New File Found: $mntFn" \
-              "File $mntFn does not appear in your configuration. Add this as a custom file ?"
-         if [ $? = "0" ] ; then
-            # copy file
-            # add to custom configuration
-            #
-            $decho "New file found $mntFn"
-         fi
-      fi
-   done
-   $dmon
-#   rm -rf mntList cfgList
-   #
-   # Save these changes
-   #
-   cfgNew=1
-   confirm_save
-   #
-   $decho "end cmd_update_configuration"
+   $RM .tmp .cfg_files .cfg_dirs
+   $decho "end extract_packages"
 }
 
 #
-# cmd_extract_all - function to remove and create mount point, then extract
-#                    all standard packages and custom files specified in the
-#                    project list files
+# extract_project( [mntPt ] )
+#     Prompts for the extraction point and extracts files as defined by
+#     the project configuration - packages and custom files.
 #
-function cmd_extract_all()
+function extract_project()
 {
-   mntName="$1"
-   rm -rf $mntName
-   mkdir "$mntName" > .result
-   if [ ! $? = "0" ] ; then
-      show_message "Mount Point Not Created" "Error Creating Directory"
-      return 0
-   fi
-   project_extract "$mntName"         > .result
-   project_extract_custom "$mntName" >> .result
-   #
-   echo "" >> .result
-   echo "Total System File Size: `du $1 -bsh` " >> .result
-   #
-   $decho "end cmd_extract_all"
-}
-
-#
-# cmd_doc_load_fs - removes existing filesystem and copies given files system to
-#               the current mount point
-#
-function cmd_doc_load_fs()
-{
-   srcMntName="$1"
-   DOC_MNT="$2"
-   #
-   # remove files found at DOC mount point (mountpoint remains after remove operation)
-   #
-   rm -fr "$DOC_MNT"
-   if [ ! -d $DOC_MNT ] ; then
-     show_message "Disk-On-Chip Not Mounted" "Mount Point \"$DOC_MNT\" not found"
-     return 0
-   fi
-   #
-   # copy project filesystem to mount point
-   #
-   cp -apvx "$srcMntName"/* "$DOC_MNT" |tee  .result
-   #
-   sync
-   $decho "end cmd_doc_load_fs"
-}
-
-#
-# cmd_usage - print a nice message about program invocation
-#
-function cmd_usage()
-{
-   echo ""
-   echo $backtitle
-   echo ""
-   echo "Usage:"
-   echo "    menu based:  $PROGRAM_NAME [projectname]"
-   echo "    copy files:  $PROGRAM_NAME [projectname] -c [ source_files [ file_system ] ]"
-   echo " extract files:  $PROGRAM_NAME [projectname] -e [ source files ]"
-   echo "  update files:  $PROGRAM_NAME [projectname] -u [ file system  ]"
-   echo "   information:  $PROGRAM_NAME [projectname]    [ --help | --version ]"
-   echo "    create new:  $PROGRAM_NAME [projectname] -n [ new_project_name ]"
-   echo ""
-   echo "Defaults:"
-   echo " projectname  - the name of the last project selected"
-   echo " source_files - directory in project: ./projects/projectname/mnt"
-   echo " file_system  - directory ./mnt"
-   echo ""
-   echo "Options:"
-   echo "  -c   --copy    - removes file_system, copies source_files to file_system"
-   echo "  -e   --extract - use project configuration to extract into source_files"
-   echo "  -n   --new     - create a new project"
-   echo "  -u   --update  - updates the project configuration to match the file_system"
-   echo ""
-}
-
-#
-#  cmd_parse_commands - parses command line parameters
-#
-#      if project name is specified, it must be first parameter
-#      on the command line
-#
-function cmd_parse_commands ()
-{
-   status=1
-   #
-   # check for project name
-   #
-   if [ ! "$1" = "" -a -d "$PRJ_PATH/$1" ] ; then
-      # project name specified
-      project_assign $1
-      status=1
-      shift
-   #
-   elif [ -f "$PRJ_LAST" ] ; then
-      #
-      # default to use last project
-      #
-      eval lastPrj=`cat $PRJ_LAST`
-      project_assign $lastPrj
-      status=1
-   #
-   else
-      # no default listed, check for existing projects
-      #
-      ls $PRJ_PATH 2> /dev/null > .result
-      if [ -s .result ] ; then
-         # project files exist, pick one!
-         eval lastPrj=`head -1 .result`
-         project_assign $lastPrj
-      #
-      else
-         #
-         # clean installation, create new project
-         #
-         if [ "$1" = "-n" ] || [ "$1" = "--new" ] ; then
-            usrMode="C"
-            project_new $2
-            exit 0
-         fi
-         project_new
-         status=$?
-      fi
-      #
-   fi
-   #
-   # initialize system
-   #
-   $CUSTOM_CFG init
-   #
-   # parse commands
-   #
-   while [ ! "$1" = "" ] ;
-   do
-      cmd=$1
-      shift
-      case "$cmd" in
-
-      "-c"|"--copy")               # copy files from project to mount point
-          usrMode="C"
-          DOC_MNT="mnt"               # default destination
-          if [ ! -z "$1" ] ; then
-              PRJ_MNT=$1              # source mount specified
-              shift
-              if [ ! -z "$2" ] ; then
-                 DOC_MNT=$2           # destination mount specified
-                 shift
-              fi
-          fi
-          cmd_doc_load_fs "$PWL_PRJ/$PRJ_MNT" "$DOC_MNT"
-          exit 0                   # no more parameters allowed
-          ;;
-
-      "-d")                        # undocumented feature!;-)
-          if [ $debugMode = "0" ] ; then
-             debug_mode  1
-          else
-             debug_mode 0
-          fi
-          ;;
-
-      "-e"|"--extract")            # extract project files (allow copy parm)
-          usrMode="C"
-          mntPt=$PWL_PRJ/$PRJ_MNT
-          if [ ! "$1" = "-c" -a ! -z "$1" ] ; then     #optional mount point specified
-             $mntPt=$1
-             shift
-          fi
-          cmd_extract_all "$mntPt"
-          if [ "$1" = "" ] ; then     # no more parameters
-             exit 0
-          fi
-          ;;
-
-      "-h"|"--help")
-          cmd_usage
-          exit 0
-          ;;
-      "-n"|"--new")
-          usrMode="C"
-          project_new $2
-          exit 0
-          ;;
-
-      "-u"|"--update")
-          # command line Update function
-          usrMode="C"
-          mntPt=$PWL_PRJ/$PRJ_MNT
-          if [ ! -z "$1" ] ; then
-              # file system specified
-              mntPt=$1
-              shift
-          fi
-          cmd_update_configuration $mntPt
-          if [ "$1" = "" ] ; then     # no more parameters
-             exit 0
-          fi
-          ;;
-
-      "-v"|"--version")
-          echo $backtitle
-          exit 0
-          ;;
-
-      *)
-          cmd_usage
-          echo "Usage Error:"
-          echo "  \"$cmd\" is not a valid project name or command"
-          exit 0
-          ;;
-
-      esac
-   done
-
-   $decho "end cmd_parse_commands"
-   return $status
-}
-
-#=============================================================================
-#
-# menu_project - operate on system projects
-#
-function menu_project()
-{
-   projectDone=0
-   #
-   while [ "$projectDone" = "0" ]; do
-      #
-      #  build list of projects from projects directory
-      #
-      build_project select.lst
-      #
-      show_project select.lst 2>.result
-
-      retVal=$?
-      read selection <.result
-      projectDefault=$selection
-
-      case "$retVal" in
-         1|255)                      # exit
-            projectDone=1
-           ;;
-         2) show_help menu_project   # help
-           ;;
-         0|3|4|5|6)                  # toggle project or operate on current
-           #
-           case "$selection" in
-             "Remove")
-                project_remove       # prompt to confirm and kill it
-                ;;
-             "Add")
-                project_new          # prompt for new project name and create it
-                ;;
-             "Copy")
-                project_copy         # Prompt for source and destination and duplicate
-                ;;
-             "Update")               # prompt for file system and compare
-                                     # with mounted files
-                cmd_update_configuration $PWL_PRJ/$PRJ_MNT
-                ;;
-             "Total"|"Skip"|"skip")
-                xx=1 # do nothing
-                ;;
-             *)
-                # setup to use selected project
-                if [ ! -z "$selection" ] ; then
-                   newName=`basename $selection`
-                   #
-                   project_assign $newName
-                   #
-                else
-                   project_assign ""   # remove any current project ??
-                fi
-                ;;
-           esac       # end select item
-           ;;
-       esac    # end dialog response
-
-   done    # end while configuring
-
-   #
-   # return clean
-   #
-   rm -f select.lst
-   $decho "end menu_project"
-   if [ -z "$CFG_BASE" ] ; then
-      show_confirm "No Project was Selected " "Exit Program ?"
-      if [ $? = "0" ] ; then
-         return 0
-      else
-         # recurse back and get a name for the project
-         menu_project
-         status=$?
-         return $status
-      fi
-   fi
-   return 1
-}
-
-#
-# menu_package( packageDirectory )
-#
-function menu_package ()
-{
-   #
-   #  build list of package files to be configured (tar.lst)
-   #
-   build_package tar.lst $1
-   #
-   configDone=0
-   #
-   while [ "$configDone" = "0" ]; do
-
-      show_packages tar.lst 2> .result
-
-      retVal=$?
-      read selection <.result
-      packageDefault=$selection
-
-      case "$retVal" in
-         1|255)                      # exit
-            configDone=1
-            shift                # allow recursion exit
-           ;;
-         2) show_help menu_package     # help
-           ;;
-         0|3|4|5|6)
-            if   [ $selection = "Unique" ] ; then
-               menu_custom
-
-            elif [ $selection = "Total" ] ; then
-               xx=1;
-
-            elif [ $selection = "Add" ] ; then
-               project_package_default "$CFG_FILE.tmp" $1 Add
-
-            elif [ $selection = "Remove" ] ; then
-               project_package_default "$CFG_FILE.tmp" $1 Remove
-
-            elif [ -d $selection ] ; then  #recurse into subdirectory
-               menu_package $selection $*
-               configDone=0                # - return and continue
-
-            elif [ $retVal = "0" ] ; then
-               menu_pkg_list $selection    # configure a package
-
-            else
-                  selFn=`basename $selection .tar`
-                  selDir=`dirname $selection`
-                  # toggle selection from temp config file
-                  if grep -q "$selFn\.list" $CFG_FILE.tmp ; then
-                     grep -v "$selFn\.list" $CFG_FILE.tmp > .result
-                     cp .result $CFG_FILE.tmp
-                  #
-                  else
-                    echo $selDir/$selFn".list" >> $CFG_FILE.tmp
-                    build_files_verify $selDir/$selFn
-                  #
-                  fi
-            fi
-            build_package tar.lst $1
-           ;;
-        esac
-  done
-  rm -f tar.lst
-  $decho "end menu_package"
-}
-
-#
-#  menu_custom
-#
-function menu_custom()
-{
-   customDone=0
-   filesDefault=""
-   #
-   # operate custom configuration menu until exit pressed
-   #
-   while [ "$customDone" = "0" ]; do
-      #
-      #  build list of files from custom directory, flag based on status file
-      #
-      build_custom custom.lst
-
-      show_files '"Configure Custom Files Menu"' custom.lst 2>.result
-      retVal=$?
-      read selection <.result
-      #
-      # only assign default for files selected
-      #
-      # Operate on command selected or toggle file
-      #
-      case "$retVal" in
-         1|255)
-            # esc or exit selected
-            #
-            customDone=1
-            ;;
-         2)
-            # show help for custom configuration
-            #
-            show_help menu_custom    # show help
-            ;;
-         0|3|4|5|6)
-            #
-            # operate command or toggle
-            #
-            if [ $selection = "Define" ] ; then
-               # define source location for new custom file(s)
-               project_custom_new
-            #
-            elif [ $selection = "Delete" ] ; then
-               # delete all references to custom file(s)
-               project_custom_remove "/"
-            #
-            elif [ $selection = "Add" ] ; then
-               # include all custom files
-               dir_tree_list_all $PWL_PRJ/$CUSTOM_DIR $PWL_PRJ/.$CUSTOM_LST
-            #
-            elif [ $selection = "Remove" ] ; then
-               # exclude all custom files
-               echo "" > $PWL_PRJ/.$CUSTOM_LST
-            #
-            elif [ $selection = "Total"  ] || [ $selection = "Skip" ] ; then
-               # ignore misc stuff
-               xx=1
-            #
-            else
-               # file selected, assign default
-               filesDefault=$selection
-               #
-               # and toggle as included or excluded in file list
-               #
-               $CUSTOM_CFG toggle $selection
-            fi
-            ;;
-         #
-         *)
-               # default
-            ;;
-      esac
-      #
-   done
-   #
-   # return clean
-   #
-   rm -f custom.lst
-   filesDefault=""
-   $decho "end  menu_custom"
-}
-
-#
-#  menu_pkg_list ( package_list_filename )
-#
-function menu_pkg_list()
-{
-   #
-   #
-   pkgListFn=`basename $1 .tar`
-   pkgListDir=`dirname $1`
-   #
-   build_files_verify $1   #double check
-   #
-   packageDone=0
-   #
-   while [ "$packageDone" = "0" ]; do
-      #
-      #  build list of files from tar file, flag based on status file
-      #
-      build_pkg_list $1 pack.lst
-      #
-      show_files "'Configure Files Menu'" pack.lst 2>.result
-      retVal=$?
-      read selection <.result
-      filesDefault=$selection
-
-      case "$retVal" in
-         1|255)                      # exit
-            packageDone=1
-           ;;
-         2) show_help menu_pkg_list # help
-           ;;
-         0|3|4|5|6)
-            #
-            # Check for 'command' operations or toggle file selected
-            #
-            if [ $selection = "Add" ] ; then
-               cp $pkgListDir/$pkgListFn".list" "$PWL_PRJ"/.$pkgListFn".list"
-
-            elif [ $selection = "Remove" ] ; then
-               echo -n "" >  "$PWL_PRJ"/.$pkgListFn".list"
-
-            elif [ $selection = "Total" ] ; then
-               xx=1 # do nothing
-
-            else
-               # toggle selection
-               #
-               if grep -q $selection "$PWL_PRJ"/.$pkgListFn".list" ; then
-                  #
-                  #  selection found - remove it from the temporary list file
-                  #
-                  grep -v "$selection" "$PWL_PRJ"/.$pkgListFn".list" > .result
-                  cp .result "$PWL_PRJ"/.$pkgListFn".list"
-               else
-                  #  selection not found - get original name and add it to the list
-                  #
-                  grep $selection $pkgListDir/$pkgListFn".list" >> "$PWL_PRJ"/.$pkgListFn".list"
-               fi
-            fi
-            ;;
-         *)     # default
-            ;;
-      esac
-   done
-   #
-   # return clean
-   #
-   rm -f pack.lst
-   filesDefault=""
-   $decho "end menu_pkg_list"
-}
-
-#
-# menu_makefs -
-#
-function menu_makefs()
-{
+   $decho "start extract_project"
    #
    # save changes if any
    #
    confirm_save
    #
-   get_string "Build File System for project $CFG_BASE" \
-              "Enter path and name of mount point:" \
-              "mntName" "$PWL_PRJ"/"$PRJ_MNT"
-   if [ $? != "0" ] ; then
-      return
-   fi
+   if [ "$1" != "" ] ; then
+      mntName="$1"
 
-   if [ ! -z "$mntName" ] ; then
-      if [ -d "$mntName" ] ; then
-         show_confirm "Mount Point Exists" "Remove File System created at: $mntName ?"
-         if [ $? = "1" ] || [ $? = "255" ] ; then
-            return             # let user specify another mount point
-         fi
+   else
+      get_string "Build File System for project $CFG_BASE" \
+                 "Enter path and name of mount point:" \
+                 "mntName" "$PWL_PRJ"/"$prjMnt"
+      if [ $? != "0" -o "$mntName" = "" ] ; then
+         return
       fi
-      #
-      # extract them
-      #
-      cmd_extract_all $mntName
-
-      show_results .result "File System Build Results"
-
    fi
-   $decho "end menu_makefs"
+   #
+   if [ -d "$mntName" ] ; then
+      show_confirm "Mount Point Exists" "Remove File System created at: $mntName ?"
+      if [ $? != "0" ] ; then
+         return             # let user specify another mount point
+      fi
+   fi
+   #
+   # extract packages and custom files
+   #
+   rm -rf $mntName
+   mkdir "$mntName"                                   > .extract.log
+   #
+   if [ ! "$?" = "0" ] ; then
+      show_message "Mount Point Not Created" "Error Creating Directory"
+      return 0
+   fi
+   #
+   extract_packages "$mntName"                        >> .extract.log 2>&1
+   extract_custom   "$mntName"                        >> .extract.log 2>&1
+   #
+   echo ""                                            >> .extract.log
+   echo "Total System File Size: `du $mntName -bsh` " >> .extract.log
+   echo ""                                            >> .extract.log
+   #
+   show_results .extract.log "Extracted File System"
+   #
+   $RM .extract.log
+   $decho "end extract_project"
 }
 
 #=============================================================================
 #
-# doc_erase - erase disk on chip and mount (or re-mount) the device
+# device_erase - erase device mounted (or re-mount) the device
 #
-function doc_erase()
+function device_erase()
 {
-   #
-   # confirm disk on chip erase
-   #
-   show_confirm "Erase Disk-On-Chip" \
-     "Are you sure you want to erase the device at $DOC_MNT ?"
-   if [ $? = "0" ] ; then
-      #
-      # Erase it
-      #
-      . $DOC -E   |tee  .result
-      #
-      # tell them what happened
-      #
-      show_results .result "Erase Disk-On-Chip Results"
-      #
-      rm -f .result
-   fi
-   #
-   $decho "end doc_erase"
-}
-
-function doc_lilo()
-{
-   #
-   # Lilo the DOC to allow it to boot the new filesystem !
-   #
-   . $DOC -u  |tee -a .result
-   $decho "end doc_lilo"
-}
-#
-# doc_load_fs - load file system created for this project onto the Disk On Chip
-#
-function doc_load_fs ()
-{
-   #
-   #  User Needs to makesure filesystem built matches the configuration files!??!!
-   #
-   # Get location of existing file system (show default)
-   #
-   get_string "Copy File System from project $CFG_BASE" \
-              "Enter path and name of file system :" \
-              "srcMntName" "$PWL_PRJ"/"$PRJ_MNT"
-   if [ $? != "0" ] ; then
-      return
-   fi
-
-   if [ -z "$srcMntName" ] || [ ! -d "$srcMntName" ] ; then
-      show_message "Existing File System Not Found" \
-             "Could Not find $srcMntName. Make sure you have selected 'Build File System for Project' first"
-      return
-   fi
+   $decho "start device_erase"
    #
    # get user defined mount point ??
    #
-   DOC_MNT=./mnt
+   get_string "Erase Device Contents" \
+              "Enter path and name of device mount point:"\
+              "destMntName" "$deviceMnt"
+   if [ $? != "0" ] ; then
+      return
+   fi
+   if [ ! -d "$destMntName" ] ; then
+      show_message "Mount point not found" \
+         "Mount point: $destMntName was not found"
+      return
+   fi
    #
-   # execute command to load the file system
+   # confirm erase
    #
-   cmd_doc_load_fs $srcMntName $DOC_MNT
+   show_confirm "Confirm Erase Device" \
+     "Are you sure you want to erase $deviceType device at $deviceLoc$devicePartition ?"
+   if [ $? = "0" ] ; then
+      #
+      # Erase it - note: if device is not mountable as is, we have to
+      #            erase it first before we mount it (-e then -m).
+      #
+      $DEV_MGR $deviceType --device $deviceLoc --dev-id $devicePartition --mount $destMntName -e -m |tee .erase.log
+      #
+      # tell them what happened
+      #
+      show_results .erase.log "Erase Device Results"
+      #
+      $RM .erase.log
+   fi
    #
-   # view results
-   #
-   show_results .result "Load File System onto Disk-On-Chip - Results"
-   rm -f .result
-   $decho "end doc_fs_load"
+   $decho "end device_erase"
 }
 
 #
-# menu_main
+# device_dual_boot()
+#     Copies existing /etc/lilo.conf file and appends section to install
+#     the project device as a bootable option at power up.
+#
+function device_dual_boot()
+{
+   $decho "start device_dual_boot"
+   #
+   # get system boot device
+   #
+   sysBootDevice=`mount | head -1`
+   sysBootDevice=${sysBootDevice%%[0-9]*}
+   #
+   show_confirm "Update LILO on this machine" \
+"Boot device for this machine is: $sysBootDevice.  You are 
+about to Modify the Master Boot Record for this device. 
+Make sure you have a boot disk available!" 10
+   if [ $? != "0" ] ; then
+      return
+   fi
+   if [ "$destMntName" = "" ] ; then
+      destMntName="$deviceMnt"
+   fi
+   #
+   get_string "Allow LILO to access Device" \
+              "Enter path and name of device mount point:"\
+              "destMntName" $destMntName
+   if [ $? != "0" ] ; then
+      return
+   fi
+   if [ ! -d "$destMntName" ] ; then
+      show_message "Mount point not found" \
+         "Mount point: $destMntName was not found"
+      return
+   fi
+   #
+   # Lilo it - note root device is the same as the device location when
+   #           we dual boot - ignore bootDevice
+   #
+   $DEV_MGR  $deviceType --mbr-device $sysBootDevice --mount $destMntName \
+             --label $bootLabel --kernel $bootKernel --dev-id $devicePartition \
+             --device $deviceLoc --root-dev ${deviceLoc}${devicePartition} \
+             -m --dual-boot 2>&1 |tee .dlilo.log
+   #
+   show_results .dlilo.log "LILO on $deviceName"
+   #
+   $RM .dlilo.log
+   $decho "end device_dual_boot"
+}
+
+#
+# device_lilo()
+#        Builds a lilo.conf.DEVICE file to install the Linux Loader onto
+#        the device and all it to boot as a master boot device.
+#
+function device_lilo()
+{
+   $decho "start device_lilo"
+   #
+   # get user defined mount point
+   #
+   if [ "$destMntName" = "" ] ; then
+     destMntName="$deviceMnt"
+   fi
+   # 
+   get_string "Install LILO on Device" \
+              "Enter path and name of device mount point:"\
+              "destMntName" $destMntName
+   if [ $? != "0" ] ; then
+      return
+   fi
+   if [ ! -d "$destMntName" ] ; then
+      show_message "Mount point not found" \
+         "Mount point: $destMntName was not found"
+      return
+   fi
+   #
+   # Tell user about our defaults
+   #
+   show_message "Note on Lilo Configuration" \
+"Configuration parameters for LILO operation are stored in \
+ \"lilo.conf.$deviceType\". Please verify these before attempting to boot this device!"
+   #
+   # Lilo it
+   #
+   $DEV_MGR  $deviceType --mount $destMntName \
+             --label $bootLabel --kernel $bootKernel \
+             --dev-id $devicePartition --mbr-device $bootDevice \
+             --device $deviceLoc --root-dev $bootDevice  -mb 2>&1 |tee .lilo.log
+   #
+   show_results .lilo.log "LILO on $deviceName"
+   #
+   $RM .lilo.log
+   $decho "end device_lilo"
+}
+
+#
+# device_load_fs( [ sourceMnt, deviceMntName ])
+#    Load file system created for this project onto the current device
+#    prompts for source and destination then show results
+#
+function device_load_fs ()
+{
+   $decho "start device_load_fs"
+   #
+   # Get location of existing file system (show default)
+   #
+   if [ "$1" != "" ] ; then
+      srcMntName="$1"
+   else
+      get_string "Load File System: Source" \
+                 "Enter path and name of file system :" \
+                 "srcMntName" "$PWL_PRJ"/"$prjMnt"
+      if [ $? != "0" ] ; then
+         return
+      fi
+   fi
+   if [ -z "$srcMntName" ] || [ ! -d "$srcMntName" ] ; then
+      show_message "Existing File System Not Found" \
+             "Could Not find $srcMntName. Make sure you have selected 'Extract File System for Project' first"
+      return
+   fi
+   #
+   # get user defined mount point
+   #
+   if [ "$1" != "" -a "$2" != "" ] ; then
+      $decho "using destination parameter $2"
+      destMntName="$2"
+   else
+      if [ "$destMntName" = "" ] ; then
+         destMntName="$deviceMnt"
+      fi
+      get_string "Load File System: Destination" \
+                 "Enter path and name of device mount point:"\
+                 "destMntName" $destMntName
+      if [ $? != "0" ] ; then
+         return
+      fi
+   fi
+   #
+   if [ -z "$destMntName" ] ; then
+      return
+   fi
+   #
+   # execute command to load the file system
+   #
+   $DEV_MGR  $deviceType --source $srcMntName --mount $destMntName \
+             --label $bootLabel --kernel $bootKernel --dev-id $devicePartition \
+             --device $deviceLoc --root-dev $bootDevice  -mc |tee .load.log
+   #
+   # Note: tee in above command kills status
+   #
+   echo "" >> .load.log
+   echo " Total Size of new file system: `du $destMntName -bsh` " >> .load.log
+   #
+   # view results
+   #
+   show_results .load.log "Load File System - Results"
+   #
+   $RM  .load.log
+   $decho "end device_fs_load"
+}
+
+#=============================================================================
+#
+# menu_main()
+#    pwlconfig main menu, interactive operation is here, by golly
 #
 function menu_main()
 {
+   $decho "start menu_main"
    #
    mainDone=0
-   build_main main.lst
+   build_main .main.lst
    #
    while [ "$mainDone" = "0" ]; do
 
-      show_main main.lst 2> .result
+      show_main .main.lst 2> .result
 
       retVal=$?
       read selection <.result
@@ -2205,164 +576,263 @@ function menu_main()
       elif [ "$retVal" = "2" ] ; then
          show_help menu_main            # help
       else
-         case "$selection" in			# select
-             "select")
+         case "$selection" in
+             "PkgConfig")
+                     $PWL_PKGCONF
+             ;;
+             "Extract")
+                     extract_project
+             ;;
+
+             "Update")               # compare mounted filesystem with
+                                     # files at mount point
+                     $PWL_UPDATE
+             ;;
+             "Erase")
+                     device_erase
+             ;;
+             "Load")
+                     device_load_fs
+             ;;
+             "Lilo")
+                     device_lilo
+             ;;
+             "Dual")
+                     device_dual_boot
+             ;;
+             "Save")
                      confirm_save
-                     menu_project
-                     if [ $? = "0" ] ; then
+             ;;
+             "PrjManage")
+                     confirm_save
+                     $PWL_PROJECTS
+                     if [ $? = "1" ] ; then # no project selected
                         mainDone=1;
+                     else                   # reset defaults
+                        pwl_init_project
+                        default_define
+                        build_main .main.lst
                      fi
-             ;;
-             "config")
-                     menu_package $PKG_DIR
-                     cfgNew=1
-             ;;
-             "makefs")
-                     menu_makefs
-             ;;
-             "erase")                 # uses default mount point
-                     doc_erase
-             ;;
-             "load")                  # uses default mount point
-                     doc_load_fs
-             ;;
-             "install")
-                     doc_lilo
-             ;;
-             "save")
-                     confirm_save
              ;;
         esac
      fi
      #
-  done
-  # cleanup
-  rm -rf main.lst
-  $decho "end menu_main"
+   done
+   # cleanup
+   $RM  .select.lst .result .dialog .main.lst
+   $decho "end menu_main"
 }
 
 #=============================================================================
-#
-# Confirm and Save
-#
-function confirm_save ()
-{
-   #
-   if [ $cfgNew = "0" ] ; then
-      return
-   fi
-   #
-   # question the user
-   #
-   show_confirm "Save configuration for project" \
-          "Do you wish to save your new configuration for project \"$CFG_BASE\" ?"
-   if [ $? = "1" ] || [ $? = "255" ]; then
-      $decho "No Configuation files have been harmed..."
-      return
-   fi
-   #clear
-   $decho "Saving Package configuration"
-   if [ -f "$CFG_FILE".tmp ] ; then
-      cp -f "$CFG_FILE".tmp "$CFG_FILE"
-      rm -f "$CFG_FILE".tmp
-   fi
-   ls -a $PWL_PRJ/.*.list  > .result 2> /dev/null
-
-   if [ -s .result ] ; then            # size greater than zero - dot files exists
-
-      $decho "Saving Package file list configurations"
-      for tmpFile in `cat .result` ; do
-         #
-         # remove path and leading dot
-         #
-         tmpFn=`basename $tmpFile | cut -c2-`
-         $decho "Saving $tmpFile to $tmpFn"
-         #
-         # overwrite previous list files, remove temporary configurations
-         #
-         cp -f $tmpFile $PWL_PRJ/$tmpFn
-         rm -f $tmpFile
-      done
-   fi
-   #
-   # remove flag to force save
-   #
-   cfgNew=0
-   $decho "end save"
-}
-
 #
 # cleanup
 #
 function cleanup() 
 {
-   rm -f .result .dialog  dialog
+   $decho "start cleanup"
+   $RM -f .result .dialog
    $decho "end cleanup"
+   if [ "$1" != "" ] ; then  # quit program
+      exit $1
+   fi
 }
-
 
 #=============================================================================
 #
-# void main( arg1 arg2 arg3 )
+#  main_init() setup project environment - call whenever project changes
+#              (multiple calls are ok :-)
 #
-#
+function main_init()
+{
+   $decho "start main_init"
+   #
    export backtitle="Pee Wee Linux System Configuration - Version $PWL_VER"
+   progInfo=$backtitle
    #
-   # force user to be logged in as root for mounting, removing and extracting
-   #      root files and devices
+   # check for initial setup
    #
-   $WHOAMI  > .result
-   if  ! grep -q root .result ; then
-       echo " "
-       echo $backtitle
-       echo " "
-       echo Please Login as root user to access projects
-       echo " "
-       exit 1
+   pwl_init_project default
+   if [ "$?" = "1" ] ; then
+      cleanup  #not root user
    fi
    #
-   # setup default debugging mode
-   #
-   debug_mode $debugMode # set default debugging mode
-   #
-   # verify utility programs exists
-   #
-   if [ ! -f "$DIALOG" ]; then
-      echo Utility program \"lxdialog\" not found
-      echo \( do make Menuconfig and copy from /usr/src/linux/lxdialog \)
-      exit 1
-   fi
-   if [ ! -f "$DOC" ]; then
-      echo Shell script $DOC not found
-      exit 1
-   fi
-   if [ ! -f "$CUSTOM_CFG" ] ; then
-      echo Shell script $CUSTOM_CFG not found
-      exit 1
+   export CFG_BASE=none
+   $PWL_PROJECTS --init
+   status=$?
+   if [ "$status" = "1" ] ; then
+      # no valid project entered
+      cleanup 1
    fi
    #
-   # do these - seems like a good idea :-?
-   set -h +o posix
-   set_geometry `stty size 2>/dev/null`
+   # set global project variables
+   #
+   pwl_init_project
+   default_define
+   if [ "$?" = "1" ] ; then # no default files found, prompt & create
+      $PRJ_DEFAULTS --reset FLASH
+      if [ "$?" = "1" ] ; then
+         cleanup 1
+      fi
+      default_define   # now load default variables
+   fi
+   #
+   # verify custom files are up to date with source files
+   #
+   $PWL_CUSTOM --update
+   #
+   $decho "end main_init"
+}
+
+#
+#  cmd_parse_commands - parses command line parameters
+#
+#      if project name is specified, it must be first parameter
+#      on the command line
+#
+function cmd_parse_commands ()
+{
+   $decho "start cmd_parse_commands"
+   #
+   # parse commands
+   #
+   while [ ! "$1" = "" ] ;
+   do
+      $decho "Parsing Cmd: $1"
+      cmd=$1
+      shift
+      case "$cmd" in
+      "B"|"--boot")                # run lilo on project device
+          main_init
+          usrMode="C"
+          #
+          device_lilo
+          exit 0
+          ;;
+      "D"|"--dual-boot")           # run lilo on this drive for dual boot
+          main_init
+          usrMode="C"
+          #
+          device_dual_boot
+          exit 0
+          ;;
+      "E"|"--erase")                # erase project device
+          main_init
+          usrMode="C"
+          #
+          device_erase
+          exit 0
+          ;;
+
+      "-e"|"--extract")            # extract project files (allow copy parm)
+          main_init
+          usrMode="C"
+          #
+          mntPt=$PWL_PRJ/$prjMnt
+          if [ ! "$1" = "-c" -a ! -z "$1" ] ; then     #optional mount point specified
+             mntPt=$1
+             shift
+          fi
+          extract_project "$mntPt"
+          #
+          exit 0
+          ;;
+      "-l"|"--load")               # copy files from project to mount point
+          main_init
+          usrMode="C"
+          #
+          deviceMntName="$deviceMnt"               # default destination
+          sourceMnt="$PWL_PRJ/$prjMnt"
+          if [ ! -z "$1" ] ; then
+              sourceMNT=$1              # source mount specified
+              shift
+              if [ ! -z "$2" ] ; then
+                 deviceMntName=$2           # destination mount specified
+                 shift
+              fi
+          fi
+          device_load_fs $sourceMnt $deviceMntName
+          exit 0                   # no more parameters allowed
+          ;;
+
+      "-d")                        # undocumented feature!;-)
+          if [ $debugMode = "0" ] ; then
+             debug_mode  1
+          else
+             debug_mode 0
+          fi
+          ;;
+
+      "-n"|"--new")                # not a menu item, but makes sense to add here ?
+          usrMode="C"
+          $PWL_PROJECTS --init $2
+          exit 0
+          ;;
+
+      "-h"|"--help")
+          usage
+          exit 0
+          ;;
+
+      "-v"|"--version")
+          echo "`basename $0` (Pee Wee Linux Configuration utility) Version $PWL_VER"
+          exit 0
+          ;;
+
+      *)
+          usage "$cmd:  not a valid project name or pwlconfig option"
+          exit 0
+          ;;
+
+      esac
+   done
+   #
+   $decho "end cmd_parse_commands"
+}
+
+#=============================================================================
+#
+# void pwlconfig_main( arg1 arg2 arg3 )
+#
+#
+function pwlconfig_main()
+{
+   $decho "start pwlconfig_main"
+   #
+   # error handler
+   #
    trap "cleanup ; exit 1" 1 2 15
    #
    #  Handle command line parameters if they exist
    #
    cmd_parse_commands $*
    #
-   if [ "$status" = "1" ] ; then
-      #
-      # operate the menus
-      #
-      menu_main
-      #
-      # Ask to Save configuration
-      #
-      confirm_save
-   fi
+   # select project to start with (last used, first found or create new)
+   # - sets all global project variables
+   #
+   main_init
+   #
+   # operate the menus
+   #
+   menu_main
+   #
+   # Ask to Save configuration
+   #
+   confirm_save
+   #
    cleanup
-   $decho "end pwlconfig"
+   $decho "end pwlconfig_main"
+}
+
+# start here
+   debug_mode 0           # set to 1 to enable debug macros
+
+   $decho "START $0 $*"
+
+   pwlconfig_main $*
+
+   $decho "END $0"
+
    exit 0
-
+#
 # end.
-
+#

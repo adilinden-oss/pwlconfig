@@ -1,0 +1,640 @@
+#! /bin/bash
+#
+###
+# Usage: pwl_projects [ cmd [ parmeters ] ... ]
+#
+#      Performs operations on Pee Wee Linux projects
+#      Works from command line or interactively.
+#
+#   "cmd"    "parameters"        Results
+#   --init    [Project Name]     creates given project (or prompt user)
+#   --save                       save temporary project configuration
+#   --help                       this help screen
+#   --project project name       use this project (default is last project)
+###
+#
+# History:
+#   v0.85 - Changed "project not saved" message
+#   v0.1 - created
+#
+# Comments:
+######
+#pwl_projects.README
+#
+#
+# Managing projects is central to Pee Wee Linux and allows you to quickly
+# create, copy and update lists of files that define your file system.
+# These lists of files are referred to as a "project" and are stored
+# in a project directory, seperate from other projects.
+#
+# From this menu, you will see several commands, along with a list
+# of all the projects you have created.  Simply cursor to the
+# project you want to manage and "select" it.  This will become your
+# "current project", which can then be configured.
+#
+# The Create, Copy, Remove and Backup commands operate on the
+# current project.
+#
+# "Create a New Project"
+#
+#    Selecting this option will prompt you for the name of your new
+#    project.
+#
+#    Along with the project name, you will be prompted for the initial
+#    device: DOC, FLASH, Floppy, CDROM.  Enter one of these for
+#    setting defaults for your project.
+#
+# "Copy <project> to New Project"
+#
+#    Use this if you have a product to build that is "almost" exactly
+#    like another product.  You can duplicate a project and then make
+#    changes to the new project.
+#
+#    The duplicate project that is created becomes the current project.
+#
+#    Selecting the "Copy..." option will prompt you for a new project
+#    name.  Enter the name and it will be an exact copy of the
+#    current project.  When the "Manage Projects" menu appears, you
+#    will now see that your newly created project is the current project.
+#
+# "Remove Project <project>"
+#
+#    This removes all aspects of the currently selected project.
+#    All custom files and configurations are deleted.
+#
+#    You will be prompted to make sure you really want to remove the
+#    project. !! This can not be undone!!!
+#
+#    Once the current project is removed, you must select another
+#    project as the current project.
+#
+# "Backup/Restore Projects and Environment"
+#
+#    This allows you to create backup files for various items within
+#    the project and the PWL envronment. See on-line help for this
+#    menu for further explanation.
+#
+# "Project defaults for <project>"
+#
+#    This allows you to set some global "project" specific parameters
+#    such as mount points, device types and so on. See on-line help
+#    for this menu for further explanation.
+#
+# [] <project name 1>
+# [] <project name 2>
+# ...
+#    Select from the list of project names to begin operating on
+#    the selected project.  The project selected becomes the new
+#    "current" project.
+#
+#END
+######
+#=============================================================================
+#
+# include generally handy functions
+#
+if [ -f "./scripts/pwl_functions" ] ; then
+  . ./scripts/pwl_functions
+elif [ -f "./pwl_functions" ] ; then
+  . ./pwl_functions
+else
+  echo "script pwl_functions not found"
+  exit 1
+fi
+#
+PWL_PROJECTS_VER=${PWL_REL_VER}".1"
+#
+#
+#=============================================================================
+#
+# show_project ( select.lst ) - show checklist of projects
+#
+function show_project()
+{
+   if [ -z "$projectDefault" ] ; then
+      projectDefault=Add
+   fi
+   echo -n $DIALOG --title "'Manage Projects Menu'" \
+                   --backtitle "'$backtitle'"      \
+                   --menu                          \
+"'Select Project to use or choose command        Project: $CFG_BASE'" \
+              $ROWS $COLS $((ROWS-8))                                 \
+             "'$projectDefault'" > .dialog
+
+   cat $1 >> .dialog
+   . ./.dialog
+}
+
+#
+# build_project - create list of project operations and projects to choose from
+#
+function build_project ()
+{
+   $decho "start build_project"
+   #
+   # insert Add, Copy and  Remove operations in menu
+   #
+   echo -n " 'Add'    'Create a New Project -->'  "        > $1
+   #
+   # Make sure project environment is set up
+   #
+   if [ ! -d "$PRJ_DIR" ] ; then
+      mkdir "$PRJ_DIR"
+   else
+      if [ ! -z "$CFG_BASE" ] ; then
+         echo -n " 'Copy'    'Copy \"$CFG_BASE\" to New Project -->' " >> $1
+         echo -n " 'Remove'  'Remove Project \"$CFG_BASE\" -->' "      >> $1
+         echo -n " 'Archive' 'Backup/Restore Projects and Environment -->' " >> $1
+         echo -n " 'skip'   '------' " >> $1
+         echo -n " 'Default' 'Project defaults for \"$CFG_BASE\" -->' " >> $1
+      fi
+      #
+      # list all project files found in project directory
+      #
+      for prjName in `ls "$PRJ_DIR"/`
+      do
+         #
+         if [ ! -z "$prjName" ] ; then
+            prjFn=`basename $prjName`
+            if [ $prjFn = "$CFG_BASE" ] ; then
+               echo -n " '$prjFn' '[*] $prjFn' " >> $1
+            else
+               echo -n " '$prjFn' '[ ] $prjFn' " >> $1
+            fi
+         fi
+      done
+   fi
+   $decho "end build_project"
+}
+
+#=============================================================================
+#
+# projects_default - creates initial project environment does nothing if
+#                   project is properly set up.
+#
+#     -   PRJ_DIR   -   "projects"
+#     --  PWL_PRJ    -   "projects/project_name"
+#     --- CUSTOM_DIR -   "projects/project_name/custom
+#     --- PRJ_MNT    -   "projects/project_name/mnt
+#
+function projects_default()
+{
+   $decho "start projects_default"
+   newOne=0
+   #
+   # Setup up main directory for projects
+   #
+   if [ ! -d "$PRJ_DIR" ] ; then
+      mkdir -p "$PRJ_DIR"
+   fi
+   #
+   # for new projects, create the project directory
+   #
+   if [ ! -d "$PWL_PRJ" ] ; then
+      mkdir -p "$PWL_PRJ"
+   fi
+   #
+   # Make sure custom environment is set up
+   #    -- CUSTOM_DIR holds all custom files and directories
+   #
+   if [ ! -d "$PWL_PRJ"/"$CUSTOM_DIR" ] ; then
+      mkdir -p "$PWL_PRJ"/"$CUSTOM_DIR"
+   fi
+   #
+   # Create mount point for project file system
+   #
+   if [ ! -d "$PWL_PRJ"/"$PRJ_MNT" ] ; then
+      mkdir -p "$PWL_PRJ"/"$PRJ_MNT"
+   fi
+   #
+   $decho "end projects_default"
+   return $newOne
+}
+
+#
+# projects_define_last - creates project definition file
+#
+function projects_define_last()
+{
+   $decho "start projects_define_last"
+   #
+   cat <<- EOF > $PRJ_LAST
+       export CFG_BASE="$CFG_BASE"
+	EOF
+#^^ tab character here!!
+   $decho "end projects_define_last"
+}
+
+#
+#
+# projects_assign - sets environment for given project
+#
+function projects_assign ()
+{
+   $decho "start projects_assign"
+   if [ "$1" = "" ] ; then
+      echo "Invalid project specified"
+      exit 1
+   fi
+   #
+   # get current project variables
+   #
+   pwl_init_project $1
+   #
+   #  create a default project if one does not exist
+   #
+   projects_default
+   #
+   # save variables for next usage
+   #
+   projects_define_last
+   #
+   # check for previous "temporary" configuration
+   #
+   ls -a $PWL_PRJ/.*.list  > .result 2> /dev/null
+   if [ -f "$CFG_FILE_TMP" ] || [ -s .result ] || [ -f "$DFT_FILE_TMP" ] ; then
+      #
+      show_confirm \
+"Use Previous Configuration Changes ?" \
+"Project: \"$CFG_BASE\" contains \"temporary\" configuration changes that were not saved.  \
+To continue with these changes, select 'Yes'.  To Erase these changes and \
+revert back to your last \"saved\" configuration select 'No'."  10
+      #
+      if [ $? = "1" ] ; then
+         $decho "Old Configuration removed for project $CFG_BASE"
+         #
+         # remove the temporary files from project
+         rm -f "$CFG_FILE_TMP"
+         rm -f "$PWL_PRJ"/.*.list
+         rm -f "$DFT_FILE_TMP"
+         #
+      fi
+   fi
+   #
+   $decho "end projects_assign"
+
+   return 0
+}
+
+#
+# projects_new( [ new name ] ) - prompts user and creates new project
+#
+function projects_new()
+{
+   $decho "start projects_new $*"
+   # create a new project
+   if [ "$1" = "" ] ; then
+      #
+      # prompt for project name if not provided
+      #
+      get_string "Create New Project" \
+                 "Enter name of new Project to Create" \
+                 "newName"
+      retVal=$?
+      if [ "$retVal" != "0" ] ; then
+         $decho "end projects_new none $retVal"
+         return 1
+      fi
+   else
+      newName=$1
+   fi
+   #
+   if [ ! -z "$newName" ] ; then
+      #
+      #  set temp variable to new path/name
+      #
+      newDir="$PRJ_DIR"/"$newName"
+      #
+      # create a new configuration
+      #
+      if [ -d $newDir ] ; then
+      #
+         show_message "Error: Could not create Project" \
+                      "Project \"$newDir\" Already Exists"
+         status=1
+      else
+         #
+         #  setup new project
+         #
+         projects_assign $newName
+         status=$?
+         #
+      fi
+   fi
+   $decho "end projects_new 0"
+   return $status
+}
+
+#
+# projects_remove - prompts user and removes current project
+#
+function projects_remove()
+{
+   $decho "start projects_remove"
+   #
+   if [ ! -d "$PWL_PRJ" ]; then
+      show_message "Error: Could Not Remove Project" \
+                   "Project \"$CFG_BASE\" not found"
+   else
+      show_confirm "Remove Project" \
+                   "Really remove project \"$CFG_BASE\" ? "
+      if [ $? = "0" ]; then
+         #
+         rm -fR $PWL_PRJ
+         #
+         #  reset to empty project
+         #
+         CFG_BASE=""
+      fi
+   fi
+   $decho "projects_remove"
+}
+
+#
+# projects_copy - prompts user for new project name to copy current project
+#
+function projects_copy()
+{
+   $decho "start projects_copy"
+   #
+   get_string "Copy Project" \
+              "Enter name of new Project to Create" \
+              "newName"
+   if [ $? != "0" ] ; then
+      return
+   fi
+   #
+   if [ ! -z newName ]; then
+      #
+      newDir="$PRJ_DIR"/"$newName"
+      #
+      # create a new configuration
+      #
+      if [ -d $newDir ] ; then
+      #
+         show_message "Error: Could not Copy Project" \
+                      "Project \"$newDir\" Already Exists"
+      else
+         # copy project directory
+         #
+         cp -ax $PWL_PRJ $newDir
+         #
+         # change default project to the copy
+         #
+         projects_assign $newName
+      fi
+   fi
+   $decho "end project copy"
+}
+
+function projects_update()
+{
+   #
+   # verify dates on custom files, prompt to update if required
+   #
+   $CUSTOM_CFG --update
+}
+
+#
+# menu_projects - operate on system projects
+#
+function menu_projects()
+{
+   $decho "start menu_projects"
+   projectDone=0
+   #
+   while [ "$projectDone" = "0" ]; do
+      #
+      #  build list of projects from projects directory
+      #
+      build_project .select.lst
+      #
+      show_project .select.lst 2>.result
+
+      retVal=$?
+      read selection <.result
+      projectDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            projectDone=1
+           ;;
+         2)
+           sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_projects.README
+
+           show_help pwl_projects.README menu_project   # help
+           ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           #
+           case "$selection" in
+             "Remove")
+                projects_remove       # prompt to confirm and kill it
+                ;;
+             "Add")
+                projects_new          # prompt for new project name and create it
+                if [ "$?" = "0" ] ; then
+                   # valid new project, assign new device defaults
+                   $PRJ_DEFAULTS --reset
+                fi
+                ;;
+             "Copy")
+                projects_copy         # Prompt for source and destination and duplicate
+                ;;
+             "Archive")
+                $PWL_BACKUP
+                ;;
+             "Default")                # setup project defaults
+                $PRJ_DEFAULTS
+                ;;
+             "Total"|"Skip"|"skip")
+                xx=1 # do nothing
+                ;;
+             *)
+                # setup to use selected project
+                if [ ! -z "$selection" ] ; then
+                   newName=`basename $selection`
+                   #
+                   projects_assign $newName
+                   #
+                else
+                   projects_assign ""   # remove any current project ??
+                fi
+                ;;
+           esac       # end select item
+           ;;
+       esac    # end dialog response
+
+   done    # end while configuring
+
+   #
+   # return clean
+   #
+   $RM .result .select.lst pwl_projects.README
+   #
+   $decho "end menu_project"
+   if [ -z "$CFG_BASE" ] ; then
+      show_confirm "No Project was Selected " "Exit Program ?"
+      if [ $? = "0" ] ; then
+         return 1
+      else
+         # recurse back and get a name for the project
+         menu_projects
+         status=$?
+         return $status
+      fi
+   fi
+   $decho "end menu_project"
+   return 0
+}
+
+#
+# projects_init( projectName )
+#           returns 0 if project initialization occurred
+#
+function projects_init()
+{
+   $decho "start projects_init"
+   status=1
+   #
+   # check for project name
+   #
+   if [ ! "$1" = "" -a -d "$PRJ_DIR/$1" ] ; then
+      #
+      $decho "existing project name specified $1"
+      #
+      projects_assign $1
+      status=$?
+   elif [ ! "$1" = "" ] ; then
+      #
+      $decho "new project name given $1"
+      #
+      projects_assign $1
+      status=$?
+   elif [ -f "$PRJ_LAST" ] ; then
+      . ./$PRJ_LAST
+      #
+      $decho  "default to use last project $CFG_BASE"
+      #
+      # check for directory and temp files
+      #
+      projects_assign $CFG_BASE
+      status=$?
+   #
+   elif [ ! -d $PRJ_DIR ] ; then
+      #
+      $decho "new project directory, prompt for project"
+      #
+      projects_new
+      status=$?
+   else
+      #
+      $decho "no default listed, check for existing projects"
+      #
+      ls $PRJ_DIR 2> /dev/null > .result
+      if [ -s .result ] ; then
+         $decho "selecting first project"
+         eval firstPrj=`head -1 .result`
+         projects_assign $firstPrj
+         status=$?
+      #
+      else
+         #
+         $decho "clean installation, create new project"
+         #
+         projects_new
+         status=$?
+      fi
+      #
+   fi
+   $decho "end projects_init"
+   return $status
+}
+
+#
+#  projects_save - save the temporary configuration to the "real"
+#                  configuration. Deletes the temporary one.
+#
+function projects_save()
+{
+   if [ -f "$CFG_FILE_TMP" ] ; then
+      sort -u $CFG_FILE_TMP > $CFG_FILE
+      rm -f "$CFG_FILE_TMP"
+   fi
+}
+
+#=============================================================================
+#
+# main - parse command line
+#
+function projects_main()
+{
+   progInfo="`basename $0` - Version $PWL_PROJECTS_VER"
+   if [ "$backtitle" = "" ] ; then
+      backtitle=$projInfo
+   fi
+   #
+   # use last project or pick one - if none exists, then leave
+   #
+   if [ -z "$CFG_BASE" ] ; then
+      pwl_init_project
+   fi
+   #
+   # otherwise, parse command line and execute commands or do interactive
+   #
+   status=0
+   gotOne=0
+   while [ "$1" != "" ] ; do
+      $decho "parse $1 $*"
+      case "$1" in
+         "--help")                   #--help
+            usage
+            ;;
+         "--project")
+            pwl_init_project $2
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+         "--save")
+            projects_save
+            gotOne=1
+            ;;
+
+         "--init")
+            projects_init $2
+            status=$?
+            gotOne=1
+            if [ ! "$2" = "" ] ; then
+               shift
+            fi
+            gotOne=1
+            ;;
+         *)
+            usage "Invalid commands: $*"
+            ;;
+      esac
+      shift
+   done
+   #
+   #
+   if [ $gotOne = "0" ] ; then
+      menu_projects
+      return 0
+   else
+      return $status
+   fi
+}
+
+# start here
+
+  debug_mode 0        # set to 1 to enable debug macros
+  $decho "START $0"
+
+  projects_main $*
+  status=$?
+
+  $decho "END $0"
+  exit $status
+#
+# end
+#

@@ -1,0 +1,316 @@
+#!/bin/bash
+#
+###
+# Usage: template [ cmd [ parmeters ] ... ]
+#
+#    Creates a default script file from this template      #-=
+#    Defaults are described within pwl_template            #-=
+#
+#   "cmd"    "parameters"      Results
+#   --help                     This help screen
+#   --project project Name     Select project (default is last one used)
+#   --init                     Initializes a new file from this Template
+#
+# Where:
+#    project Name is the name of a current PWL project
+#
+###
+#
+# History:
+#   v0.1 - created
+#
+# Comments:
+#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+#   pwl_Template history
+#     v0.1 - created
+#
+#   The - = - = lines in this program are used to delimit the
+#   lines deleted from the new file being created.  You don't
+#   have to include them when you create your own file.
+#
+#   Make sure you have a matched pair when included in this file!
+#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+#
+######
+#template.README
+#
+#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+#   This program creates a Template to be used for creating other
+#   shell utilities within Pee Wee Linux.
+#
+#   Items included here are "common" to most other programs, so this
+#   should give you a quick-start for building a new program.
+#
+#   After you dream up a name for a "newfile", start off as:
+#      pwl_template                     - interactive operation
+#   or
+#      pwl_template --init newfile      - commandline operation
+#
+#   Now you just need to fill in the actual "working" stuff...
+#   - For interactive dialog display, update the functions
+#     "build_newfile" and "show_newfile".
+#
+#   - For command operation, add the commands to "newfile_main" and
+#     document within the ### comments above.
+#
+#   - Create functions that are invoked by command line and
+#     the dialog operations.
+#
+#   - To build the help file, fill in between the filename.README
+#     and the END.
+#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+#
+#END
+######
+#
+#=============================================================================
+#
+# include generally handy functions
+#
+if [ -f "./scripts/pwl_functions" ] ; then
+  . ./scripts/pwl_functions
+elif [ -f "./pwl_functions" ] ; then
+  . ./pwl_functions
+else
+  echo "script pwl_functions not found"
+fi
+#
+PWL_TEMPLATE_VER=${PWL_REL_VER}".1"
+#
+#
+#=============================================================================
+#
+# show_template ( select.lst ) - show checklist of items
+#
+function show_template()
+{
+   if [ -z "$templateDefault" ] ; then
+      templateDefault=Add
+   fi
+   echo -n $DIALOG --title "'Select Template Menu'" \
+                   --backtitle "'$backtitle'"      \
+                   --menu                          \
+"'Select template to use or choose command        Project: $CFG_BASE'" \
+              $ROWS $COLS $((ROWS-8))                                 \
+             "'$templateDefault'" > .dialog
+
+   cat $1 >> .dialog
+   . ./.dialog
+}
+
+#
+# build_template - create dialog of operations and selectable items
+#
+function build_template ()
+{
+   $decho "start build_template"
+   #
+   # insert command operations in menu
+   #
+   echo -n "" > $1
+   echo -n " 'Add'    'Create a new template -->'  "        >> $1
+   echo -n " 'skip'   '------' "                            >> $1
+   #
+   # heres's a sample for building a 'marked' list
+      #
+      # list all project files found
+      #
+      for prjName in `ls "$PRJ_DIR"/`
+      do
+         #
+         if [ ! -z "$prjName" ] ; then
+            prjFn=`basename $prjName`
+            if [ $prjFn = "$CFG_BASE" ] ; then
+               echo -n " '$prjFn' '[*] Item Checked' " >> $1
+            else
+               echo -n " '$prjFn' '[ ] Item Not Checked' " >> $1
+            fi
+         fi
+      done
+   #
+   $decho "end build_template"
+}
+
+#
+# template_init - Initialize project environment
+#-=-=-               creates an initial "framework" for a pwl script tool
+#-=-=-
+function template_init()
+{
+   $decho "start template_init $*"
+   #
+   # init stuff
+   #
+   pwl_init_project
+   default_define          # set global variables for project defaults
+   #
+   #
+   #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+   newName=$1
+   if [ "$newName" = "" ] ; then
+      #
+      # prompt for file name if not provided
+      #
+      get_string "Enter File name"    \
+                 "Enter name of new script file to create:"  \
+                 newName
+                    retVal=$?
+      if [ "$retVal" != "0" ] ; then
+         $decho "end template_init no name given $retVal"
+         return 1
+      fi
+   fi
+   if [ "$newName" != "INIT_ONLY" -a ! -z "$newName" ] ; then
+      #
+      if [ -f $newName ] ; then
+         usage "Can not create $newName, file exists"
+      else
+         ucNewName=`echo $newName | gawk '{ print toupper($1)}' `
+         #
+         cp $PROGRAM_NAME  $basedir/.$newName
+         #
+         # Now, change stuff in template for the new file
+         #
+         sed s/template/$newName/g .$newName > .tmp
+         sed s/TEMPLATE/$ucNewName/g .tmp > .tmp2
+         sed /#-=/,/#-=/d .tmp2 > $newName
+         #-= is cut pattern, included in this comment
+         #    since then above line is also a delimiter!
+         chmod +x $newName
+         echo -e "\nCreated Script file: $newName"
+      fi
+      $RM .tmp .tmp2 .$newName
+   fi
+   #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+   $decho "done template_init"
+}
+
+#=============================================================================
+#
+#  template_xxx functions go here !!
+#
+
+#=============================================================================
+#
+#
+# menu_template - operate on ***
+#
+function menu_template()
+{
+   $decho "start menu_template"
+   templateDone=0
+   #
+   while [ "$templateDone" = "0" ]; do
+      #
+      #  build list ***
+      #
+      build_template .select.lst
+      #
+      show_template .select.lst 2>.result
+
+      retVal=$?
+      read selection <.result
+      templateDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            templateDone=1
+           ;;
+         2)                          # help
+            sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > template.README
+            show_help template.README
+           ;;
+         0|3|4|5|6)                  # toggle project or operate on current
+           #
+           case "$selection" in
+             "Add")                  # operation "Add"
+                #-=-=
+                template_init
+                templateDone=1
+                #-=-=
+                xx=1
+                ;;
+             "Total"|"Skip"|"skip")
+                xx=1 # do nothing
+                ;;
+             *)                      # list item selected
+                xx=1
+                ;;
+           esac       # end select item
+           ;;
+       esac    # end dialog response
+
+   done    # end while configuring
+
+   #
+   # return clean
+   #
+   $RM .select.lst .result .dialog  .show_result template.README
+   $decho "end menu_template"
+   return 0
+}
+
+#=============================================================================
+#
+# main - parse command line
+#
+function template_main()
+{
+   progInfo="`basename $0` - Version $PWL_TEMPLATE_VER"
+   if [ "$backtitle" = "" ] ; then
+      backtitle=$progInfo
+   fi
+   template_init INIT_ONLY   # INIT_ONLY is a flag for template only- remove this!
+   #
+   # parse command line and execute commands or do interactive
+   #
+   gotOne=0
+   while [ "$1" != "" ] ; do
+      $decho "parse $*"
+      case "$1" in
+         "--help")                   #--help
+            usage
+            ;;
+         "--project")                #--project - assign current project
+            pwl_init_project $2
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         "--init")                   #--init
+            template_init $2
+            gotOne=1
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         *) usage "Invalid command $*"
+            ;;
+      esac
+      shift
+   done
+   #
+   # do interactive operation
+   #
+   if [ $gotOne = "0" ] ; then
+      #
+      usrMode="I"      # enable interactive mode
+      menu_template
+   fi
+}
+
+# start here
+  debug_mode 0        # set to 1 to enable debug macros
+
+  $decho "START $0"
+
+  template_main $*
+
+  $decho "END $0"
+
+  exit 0
+#
+# end
+#

@@ -1,3 +1,6 @@
+
+README.pwlconfig V0.85
+
 ===================
 What is pwlconfig ?
 ===================
@@ -25,14 +28,21 @@ The best way to learn pwlconfig is to get your hands on it and build
 a simple product.  Just follow these few steps to build a bootable
 floppy.
 
-Go to the Embedded_Build directory and type:
+Go to the Embedded_Build directory and enter:
 ./pwlconfig
 
-You will be prompted for a project name, type:
+You will be prompted for a project name, enter:
 
 simple
 
-## to do: choose default project type "boot only"
+Next you are prompted for a project device type. You must enter one
+of the devices currently supported. The device type must be accessible
+from pwlconfig. Enter:
+
+FLOPPY
+
+(or "DOC", "FLASH" or CDROM for Disk-On-Chip, flash disk device
+or CD-ROM)
 
 The main menu displayed lets you create your own file system based on
 Pee Wee Linux packages and your own custom files.  So, from here,
@@ -46,12 +56,27 @@ The "Configure Packages Menu" displayed lists all the files
 contained within this package.  Cursor to any file and 'select' it
 to exclude or include it as part of your file system.
 
-## to do: more configuration for simple system
+## to do: more configuration steps for simple system
 
 Now press ESC a couple of times until the main menu is displayed.
 Highlight "Extract File System from Project" and press ENTER.
 Accept the defaults, this will extract all files into a mount point
 within your "simple" project.
+
+The main menu options "Erase..." "Load..." and "Install..." should
+be displayed along with the device you selected above.  Simply
+choose those in that order.
+
+Erase, suprise, erases the device.  "Load..." copies the files you
+previously extracted onto the device.  Lilo will then format the MBR
+for your new file system to allow it to boot.
+
+Various other parameters can be changed to fine tune pwlconfig for
+your hardware environment, should it differ from the "defaults".  Use
+"Manage Projects->Project defaults..." to display these defaults and
+change them as you like.
+
+Thats it, you have now successfully "embedded" Pee Wee Linux !
 
 ==========================
 How to work with pwlconfig
@@ -60,16 +85,20 @@ How to work with pwlconfig
 Pwlconfig provides several operations for embedding Pee Wee Linux:
 
 1. Command line options
-1. Managing Projects
-2. Configuring File Systems
-3. Building File Systems
-4. Loading File Systems
-5. *Creating packages
+2. Managing Projects
+3. Saving Configurations
+4. Configuring File Systems
+5. Building File Systems
+6. Setting up your Boot Device
+7. Loading and Booting your File System
+8. Updating your File System
+9. *Creating Pwlconfig packages
+
 
 Command Line Options
 ---------------------
 
-##All operations of pwlconfig can be executed directly from
+## todo: All operations of pwlconfig can be executed directly from
 ##the command line.
 
 The following arguments are available from the command line
@@ -117,7 +146,13 @@ invocation of pwlconfig:
 
 
 Use "pwlconfig --help" to see the latest command line options.
-
+Other operations for your Pee Wee Linux environment are also changable
+through the command line.  To see all the available options, use
+the --help option on the following scripts:
+   mkBootDevice
+   pwl_custom
+   pwl_default
+   pwl_projects
 
 
 Managing projects
@@ -138,7 +173,7 @@ When a project is newly created, all the files in all the default
 packages are included.  These should be most of the files required
 to boot your system to a login prompt.  Try it and see!
 
-To work with your projects,  choose "Select A Project" from the
+To work with your projects,  choose "Manage Projects" from the
 main menu.  By default, the last project you were working on is
 the project selected when you start pwlconfig.
 
@@ -146,9 +181,33 @@ At any time, you can copy a project to another project, create a
 new project or remove an existing project.  The "Copy..' and
 "Remove.." options operate on the current project.
 
+Several project specific parameters may also be changed.  The
+"Project Defaults for ..." shows a list of project parameters that
+can be set for your environment
+
 To select from an existing project, just highlight the desired
 project name and "select" it.  This will be your default project
 until you choose another one.
+
+
+Saving Configurations
+-------------------------
+
+To save all your configuration changes, select "Save Project" from
+the main menu.  Also, You will be prompted to save the project before
+you build a file system or exit pwlconfig.
+
+If you exit pwlconfig without saving, do not worry! When you start
+plwconfig, you will be notified that a previous configuration was
+detected.  Your choices when you start pwlconfig will be:
+
+  Select 'Yes' to continue using the "temporary" configuration.
+
+  Select 'No' to start pwlconfig with the last configuration you
+  saved.
+
+Choose 'yes' and keep on changing your configuration, as if you never
+stopped.
 
 
 Configuring File Systems
@@ -175,29 +234,12 @@ Custom files added to your project may then be included or excluded
 from your final configuration.
 
 
-Saving your Configuration
--------------------------
-
-To save all your configuration changes, select "Save Project" from
-the main menu.  You will be prompted to save the project before
-you build a file system or exit pwlconfig.
-
-If you exit pwlconfig without saving, do not worry! When you start
-plwconfig, you will be notified that a previous configuration was
-detected.
-
-Select 'Yes' to continue using the "temporary" configuration.
-
-Select 'No' to start pwlconfig with the last configuration you
-saved.
-
-
-Building your File System
--------------------------
+Building File Systems
+---------------------
 
 Once you have created a project and configured your file system,
 you are ready to build your file system.  From the main menu,
-select "Build File System for Project".
+select "Extract File System for Project".
 
 Only the files you have specified will be copied to your new file
 system.  By default, the file system is created at a mount point
@@ -211,15 +253,15 @@ All the files you selected for each package will be extracted, then
 all the custom files you added are copied to the mount point.
 
 
-
-Loading your File System
-------------------------
+Setting up your Boot Device
+---------------------------
 
 Now that you have built the file system according to your
 configuration, you must install it on the 'boot device'.  File
 systems can be installed on any of the following devices:
 
 1. Disk-On-Chip
+2. Flash Drive (IDE type)
 2. *Floppy Disk
 3. *CD ROM
 
@@ -239,15 +281,68 @@ Once your Disk-On-Chip is visible (ie, can be mounted), all further
 testing and updating can be done using pwlconfig. Select "Erase
 Disk-On-Chip" from the main menu to erase the device.
 
-Next, choose "Load File System" to copy the file system you created
-on to the Disk-On-Chip.
+- Creating Flash File System
+
+This may depend on your flash device.  The flash IDE drive I'm using
+requires no configuration steps, it looks like a hard disk. (And, you
+don't even have to tell your BIOS that it's there until you boot it!)
+
+- Creating Floppy File System
+
+All operations for floppies are provided within pwlconfig.  Just make
+sure you have a device node (/dev/fl0 or similiar).
+
+- Creating Bootable CDROM File System
+
+Pwlinux doesn't support actually burning CD-ROMS (check out CDROAST and
+other such programs).  The file system built contains an image suitable
+for directly loading onto a CD-ROM to boot.
+
+
+Loading and Booting your File System
+-------------------------------------
+
+After you've Configured your file system, extracted it and setup your
+boot Device, next you have to load the files on it.
+
+Choose "Load File System onto <device name> " to copy the file
+system you created on to the Disk-On-Chip.
+
+Carefully read through the "Manage Projects -> Project defaults".  Lots
+of these parameters are special just for the Lilo configuration. If your
+not careful, things can go terribly wrong here - BE WARNED!
 
 Finally, to allow your Disk-On-Chip to boot, select "Install
 LInux LOader (Lilo)..".  The Master boot record of the device will
-be written and the chip should now boot.
+be written and the device should now boot.
 
-Make sure you have disabled any hard drives attached (probably a
-BIOS configuration ).
+Some setup parameters may have to be changed in your BIOS to make your
+boot go smoothly. For each device, first check the following
+
+Floppy - set BIOS to boot from A: (yes, it is still a DOS world!)
+CDROM  - set BIOS to boot from CDROM
+DOC    - disable boot from 1st IDE or physically remove 1st hard disk
+         (you may have to re-program the DOC for the BIOS to find it)
+FLASH  - disable boot from 1st IDE or physically remove 1st hard disk
+
+Updating your File System
+-------------------------
+
+Once you have booted your device, chances are you may have to make a few
+changes.  Feel Free!  Change what ever files you need to, get everything
+working and then come home to pwlconfig.
+
+With your working device mounted (or an image of your working device),
+choose the "Update 'project' from file system"
+
+Everyfile on your device will be compared with the files in your
+configuration.  Any files you have touched will be copied to your
+"custom" files directory.
+
+The next time you build your file system, the original package files are
+extracted, then all the custom files are copied.  Now your newly built
+system looks exactly like your working device.
+
 
 Creating Pwlconfig Packages
 ---------------------------
@@ -263,13 +358,12 @@ debugging information or extra library dependencies.
 <package magic description>
 
 
-
 ============
 Help Screens
 ============
 
 The following are context sensitive help screens (delimited by "help_name"
-and END).
+and END).  These match the names found in the script files.
 
 menu_main Main Menu
 
@@ -402,122 +496,15 @@ of all the projects you have created.  Simply cursor to the
 project you want to manage and "select" it.  This will become your
 "current project", which can then be configured.
 
-The Copy, Remove and Update commands operate on the current project.
-
-
-"Create a New Project"
-
-   Selecting this option will prompt you for the name of your new
-   project.
-
-   ## to do: select project defaults and parameters
-
-"Copy <project> to New Project"
-
-   Use this if you have a product to build that is "almost" exactly
-   like another product, you can duplicate a project and then make
-   changes to the new project.
-
-   The project that is duplicated is the current project.  Make sure
-   you have selected the project that you want to duplicate.
-
-   Selecting the "Copy..." option will prompt you for a new project
-   name.  Enter the name and it will be an exact copy of the
-   current project.  When the "Manage Projects" menu appears, you
-   will now see that your newly created project is the current project.
-
-"Remove Project <project>"
-
-   This removes all aspects of the currently selected project.
-   All custom files and configurations are deleted.
-
-   You will be prompted to make sure you really want to remove the
-   project. !! This can not be undone!!!
-
-   Once the current project is removed, you must select another
-   project as the current project.
-
-"Update <project> from file system"
-
-   This option lets you configure your project based on an existing
-   file system.
-
-   If you build a file system (with or without Pee Wee Linux), you
-   will then begin booting and testing your file system.  Since
-   everything may not be "exactly" as you need it, you tweak the
-   configurations and copy a few files that are required.
-
-   Now, everything is working great.  Select "Update..." option and
-   any files that don't match your project configuration are
-   copied to your system.
-
-   The file system is examined and compared with your configuration.
-   Before any changes are made, you will be prompted to confirm
-   that you really want to make the change.
-
-   Here's what will happen...
-   - If you change one of your custom files, you will be prompted
-     to replace the "older" file in your project with the one from
-     the file system.
-
-   - If you changed one of the "packaged" files, that file will
-     be added to your custom files and excluded from the package
-     configuration list.
-
-   - If you add or create a new file not found in your configuration
-     this file will be copied as one of your custom files.
-
-## - If you add or create a new file that matches a file found in
-##   one of the packages, the configuration for that package will
-##   be update to include this file.
-
 END
 
-menu_package Configure Project File System
+menu_package Configure Packages Menu
 
 This is the heart of the Pee Wee Linux configuration.  The file
 system you build is defined here by selecting packages and
 files within those packages that are to be included when your
 file system is built.
 
-The packages have been categorized to help you quickly locate
-those packages that you need.  A package category is listed as:
-a category name followed by "--->"  For example:
-
-   boot_system --->
-
-Highlight the category that you want to configure and select
-that item.  You will be presented with a list of all the packages
-contained within that category.
-
-A package file appears as:
-
-  [ ] _base_filesystem
-
-which can be marked as "included" by pressing the SPACE BAR:
-
-  [*] _base_filesystem
-
-If you highlight an package and press ENTER, you will go to
-the "Configure Files Menu".  This will show you all the individual
-files contained within that package.
-
-Configure Custom files for <project>
-
-  This command option lets you add, delete or individually select
-  "custom" files for your file system.
-
-  Custom files are those files that are hardware specific or
-  Environment specific or something you prefer over files found
-  in the Pee Wee Linux packages.  Whatever your reason, you
-  simply choose this option to work with your own "custom" files.
-
-Include All Packages
-Exclude All Packages
-  Selecting these commands will include or exclude every package
-  in the current package category.  This might be handy if you
-  want "all but one" of the packages...select Include all and
-  then highlight the few packages you don't need.
 
 END
 
@@ -558,69 +545,13 @@ menu_custom Configure Custom Files
 Custom files are added to your file system to support your unique
 hardware or environment.
 
-For example, if you have a network device that must be included as
-a module, just "Add" the device driver module file to your Custom Files.
 
-When you add a custom file, you specify a source and destination.
-If the source file gets updated, you will be prompted to upgrade
-the destination file in your project.
+END
 
-If the source file gets deleted, you still have a copy of it in
-your project.
+menu_defaults Project Defaults Menu
 
-    Shortcut:  Press 'Esc' at any prompt to return to the
-               "Configure Custom Files menu with no changes"
-
-    Shortcut:  You can enter a directory name and every file
-               in that directory will be added as a custom file
-
-"Add custom files to ..."
-
-    First you will be prompted to specify the "entire" path and name
-    of the custom file to add to your file system:
-
-       /home/joe_user/network/br549.o
-
-    If this 'source' file is found, you will be prompted to specify
-    the 'destination' file. Again, enter the "entire" path and name of
-    the final location for the file (where it will appear in the final
-    file system).  This path must start with '/', the root of the file
-    system being built:
-
-       /lib/modules/2.2-12-20/net/br549-v3.o
-
-    If this file alread exists in your project you will be prompted
-    to overwrite it.  If you overwrite it, the source will be the new
-    source path and name you just entered.
-
-"Delete custom files from ..."
-
-    If you no longer need a custom file, you can delete it from your
-    project.  Enter the name of the file you want to delete as it
-    appears in your project:
-
-       /lib/modules/2.2.12-20/net/br549-v3.o
-
-    You will be prompted if you really really want to delete this.
-
-    If you specify a directory, that directory and all files contained
-    within it will be deleted.
-
-    Deleting a custom file will not touch the source file.
-
-    Shortcut:  If you 'select' a custom file from the menu, then
-               choose 'Delete',the custom file name is displayed
-               by default, saving you all that typing.
-
-
-"Include all custom files"
-"Exclude all custom files"
-
-     Select these menu items to globally enable or disable all
-     custom files added to your project.
-
-     Once included or excluded, you can toggle each individual
-     file to further optimize your file system configuration.
+The project defaults define parameters that let you build your
+project for several different target devices.
 
 END
 

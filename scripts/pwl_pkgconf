@@ -1,0 +1,621 @@
+#!/bin/bash
+#
+###
+# Usage: pwl_pkgconf [ cmd [ parmeters ] ... ]
+#
+#   Allows adding packages and package files to PWL projects. Works
+#   interactively.
+#
+#   "cmd"    "parameters"      Results
+#   --help                     This help screen
+#   --project project Name     Select project (default is last one used)
+#   --save    [ check]         Saves temporary package config files, a
+#                              non-blank parameter only returns "1" if
+#                              files need saving.
+#
+# Where:
+#    project Name is the name of a current PWL project
+#
+###
+#
+# History:
+#   v0.85 - replaced paths to temp file with CFG_FILE_TMP
+#   v0.1 - created
+#
+# Comments:
+#
+######
+#pwl_pkgconf.README
+#
+#
+#   This is the heart of the Pee Wee Linux configuration.  The file
+#   system you build is defined here by selecting packages and
+#   files within those packages that are to be included when your
+#   file system is extracted.
+#
+#   The packages have been categorized to help you quickly locate
+#   those packages that you need.  A package category is listed as:
+#   a category name followed by "--->"  For example:
+#
+#      boot_system --->
+#
+#   Highlight the category that you want to configure and select
+#   that item.  You will be presented with a list of all the packages
+#   contained within that category.
+#
+#   A package file appears as:
+#
+#     [ ] _base_filesystem
+#
+#   which can be marked as "included" by pressing the SPACE BAR:
+#
+#     [*] _base_filesystem
+#
+#   If you highlight an package and press ENTER, you will go to
+#   the "Configure Files Menu".  This will show you all the individual
+#   files contained within that package.
+#
+#   Configure Custom files for <project>
+#
+#     This command option lets you add, delete or individually select
+#     "custom" files for your file system.
+#
+#     Custom files are those files that are hardware specific or
+#     Environment specific or something you prefer over files found
+#     in the Pee Wee Linux packages.  Whatever your reason, you
+#     simply choose this option to work with your own "custom" files.
+#
+#   Include All Packages
+#   Exclude All Packages
+#     Selecting these commands will include or exclude every package
+#     in the current package category.  This might be handy if you
+#     want "all but one" of the packages...select Include all and
+#     then highlight the few packages you don't need.
+#
+#
+#END
+######
+#
+#=============================================================================
+#
+# include generally handy functions
+#
+if [ -f "./scripts/pwl_functions" ] ; then
+  . ./scripts/pwl_functions
+elif [ -f "./pwl_functions" ] ; then
+  . ./pwl_functions
+else
+  echo "script pwl_functions not found"
+fi
+#
+PWL_PKGCONF_VER=${PWL_REL_VER}".1"
+#
+#
+#=============================================================================
+#
+# show_pwl_pkgconf ( select.lst ) - show checklist of items
+#
+function show_pwl_pkgconf()
+{
+   if [ -z "$packageDefault" ] ; then
+      packageDefault=Unique
+   fi
+   echo -n $DIALOG --title "'Configure Project File System Menu'" \
+                   --backtitle \"$backtitle\"          \
+                   --menu                              \
+"'Select Package or Category to Configure.           Project: $CFG_BASE'" \
+              $ROWS $COLS $((ROWS-8))                              \
+             "'$packageDefault'" > .dialog
+
+   cat $1 >> .dialog
+   . ./.dialog
+}
+
+#
+# build_pwl_pkgconf( tar_list, pkgdir ) - creates list of all packages
+#     (xxx.tar files) found in given package directory, and all subdirectories
+#                "flags" packages enabled for this configuration
+#
+function build_pwl_pkgconf ()
+{
+   $decho "start build_pwl_pkgconf"
+   #
+   # if no temporary configuration create temporary configuration file
+   # from previous configuration
+   #
+   if [ ! -f "$CFG_FILE_TMP" ] ; then
+      if [ ! -f $CFG_FILE ] ; then
+         echo -n "" > $CFG_FILE
+      fi
+      cp "$CFG_FILE" "$CFG_FILE_TMP"
+   fi
+   #
+   #  allow custom files operation
+   #
+   echo -n " 'Unique' 'Configure Custom files for \"$CFG_BASE\" -->' " > $1
+   echo -n " 'Skip'   '----' " >> $1
+   #
+   # list all subdirectories files found in packages directory
+   #
+   gotOne=0
+   for pkgDirName in `find $2 -type d | sort`;
+   do
+      #
+      # show directory names (except root of this directory)
+      #
+      pkgDir=`dirname $pkgDirName`
+      pkgDirBase=`basename $pkgDirName`
+      if [ "$pkgDirName" != "$2" ] ; then
+         echo -n " '$pkgDirName' '$pkgDirBase --> ' " >> $1
+         gotOne=1
+      fi
+   done
+   #
+   # list all tar files found in packages directory (if any)
+   #
+   if [ ! -z "`ls $2/*.tar 2> /dev/null`" ] ; then
+      if [ "$gotOne" = "1" ] ; then
+         echo -n " 'Skip' '----' " >> $1
+      fi
+      echo -n " 'Include'    'Include all packages' " >> $1
+      echo -n " 'Exclude' 'Exclude all packages' " >> $1
+      for tarFn in `ls $2/*.tar 2> /dev/null`;
+      do
+         echo -n "."   # show user we are doing something
+         #
+         # parse tar file names for base file name
+         #
+         baseFn=`basename $tarFn .tar`
+         #
+         #  if base filename is already in the configuration file, flag it
+         #  (list file names must match exactly)
+         #
+         if grep -q "$baseFn"\.list$ "$CFG_FILE_TMP"  ; then
+            echo -n  "'$tarFn' '[*] $baseFn " >> $1
+         else
+            echo -n  "'$tarFn' '[ ] $baseFn " >> $1
+         fi
+         if [ -s $PWL_PRJ/.$baseFn".list" ] ; then
+            echo -n " ~~ " >> $1                    # flag temp configured
+         elif [ -s $PWL_PRJ/$baseFn".list"  ] ; then
+            echo -n " ** " >> $1                    # flag as configured
+            # could show total package size, if added to .list file
+         fi
+         echo -n "--->' " >> $1
+      done
+   fi
+   $decho "end build_pwl_pkgconf"
+}
+
+#
+# build_files_verify ( package )
+#   Create list files that identify what files are contained in a package
+#   - initial list file - stored with package, lists all files (created once)
+#   - default list file - stored in project, default is "none selected"
+#   - temporary list file - current configuration of files with project
+#
+function build_files_verify()
+{
+   $decho "start build_files_verify"
+   pkgDir=`dirname $1`
+   pkgFn=`basename $1 .tar`      # remove extension .tar or .list
+   pkgFn=`basename $pkgFn .list`
+   #
+   # sanity check - package file must exist!
+   #
+   if [ ! -f $pkgDir/$pkgFn".tar" ] ; then
+      echo Error Invalid package file: $1
+      exit 0
+   fi
+   #
+   # check that list file matching the tar file exists or create it
+   #
+   if [ ! -f $pkgDir/$pkgFn".list" ] ; then
+      $TAR -tf $pkgDir/$pkgFn".tar" > $pkgDir/$pkgFn".list"
+   fi
+   #
+   # make sure a default list file exists within the project
+   #
+   if [ ! -f $PWL_PRJ/$pkgFn".list" ] ; then
+      cp $pkgDir/$pkgFn".list" $PWL_PRJ/$pkgFn".list"
+   fi
+   #
+   #  See if this package has a temporary configuration file
+   #
+   if [ ! -f $PWL_PRJ/.$pkgFn".list" ] ; then
+      cp $PWL_PRJ/$pkgFn".list" $PWL_PRJ/.$pkgFn".list"
+   fi
+   $decho "end build_files_verify"
+}
+
+#
+# build_pkg_list (package_name, package.list  )
+#        - creates pack.list file of all files available in tar package
+#          flags status based on status_file (temporary copy of enabled
+#          files)
+#
+function build_pkg_list()
+{
+   $decho "start build_pkg_list"
+   pkgDir=`dirname $1`
+   pkgFn=`basename $1 .tar`
+   #
+   #  Include options to add or remove all files from this package
+   #
+   echo -n " 'Include'     'Include all files from \"$pkgFn\" package'  "     >   $2
+   echo -n " 'Exclude'  'Exclude all files from \"$pkgFn\" package ' "  >>  $2
+   #
+   # List size of files in this tarball
+   #   (only list regular files | set fields to one space only | remove permisions and owners fields)
+   #
+   $TAR -tvvf $pkgDir/$pkgFn".tar" | grep "^-" | sed "s/  */ /g" | cut -d" " -f3- > .result
+   #
+   #  for each file stored in the tar file, see if it is enabled for this
+   #     configuration
+   #
+   totalSz=0
+   for sysFn in `cat $pkgDir/$pkgFn".list"`; do
+      echo -n "."   # show user we are doing something
+      #
+      # read filesize for this file (file size must be at start of line)
+      #
+      if grep -q $sysFn$ .result ; then
+         fileSz=`grep $sysFn$ .result | cut -d" " -f1`
+      else
+         fileSz=0
+      fi
+      #
+      # if file is in the status list file then flag it
+      #    use Exact match, allow empty directory select
+      #
+      if grep -q $sysFn$ "$PWL_PRJ"/.$pkgFn".list" ; then
+        echo -n "'$sysFn' '[*] $sysFn "  >> $2
+        totalSz=`expr $totalSz + $fileSz`
+      else
+         echo -n "'$sysFn' '[ ] $sysFn " >> $2
+      fi
+      if [ $fileSz -gt 0 ] ; then
+         echo -n "  $fileSz" >> $2
+      fi
+      echo -n "' " >> $2
+   done
+   echo -n "'Total' 'Estimated Total for selected files: $totalSz' " >> $2
+   $decho "build_pkg_list"
+}
+
+#
+# project_package_default( listFile, dir, Create_or_Exclude )
+#    Creates a new 'listFile' from all "tarball" packages found in
+#      the given directory 'dir', and either:
+#        - create - copy default list file to project
+#        - Exclude - remove names of files from listFile (previous selections
+#                   of individual files remain in project directory)
+#
+function project_package_default()
+{
+   $decho "start project_package_default"
+     #
+     #  list files found in the package directory
+     #
+     for lstFile in `ls $2/*list 2> /dev/null` ; do
+        #
+        # copy or remove list files from current configuration
+        #
+        if [ "$3" = "Exclude" ]; then
+           grep -v "$lstFile"$ $1 > .result
+           cp .result $1
+        else
+           echo $lstFile >> $1
+           build_files_verify "$lstFile"  #create config files as required
+        fi
+     done
+     if [ -f $1 ] ; then           #   if any added or removed, sort them
+        cat $1 | sort -u > .result
+        cp .result $1
+     else
+        echo -n "" > $1
+     fi
+  $decho "done project_package_default"
+}
+
+#
+# pwl_pkgconf_init - initialize project variables
+#
+function pwl_pkgconf_init()
+{
+   $decho "start pwl_pkgconf_init $*"
+   #
+   # init stuff
+   #
+   pwl_init_project
+   default_define          # set global variables for project defaults
+   #
+   $decho "done pwl_pkgconf_init"
+}
+
+#=============================================================================
+#
+# pwl_pkgconf_save(chkSave) - save any temporary configuration files
+#
+function pwl_pkgconf_save()
+{
+   $decho "start pwl_pkgconf_save"
+   #
+   ls -a $PWL_PRJ/.*list  > .result 2> /dev/null
+
+   if [ -s .result ] ; then            # size greater than zero - dot files exists
+
+      $decho "Saving Package file list configurations"
+      for tmpFile in `cat .result` ; do
+         #
+         # remove path and leading dot
+         #
+         listFn=`basename $tmpFile | cut -c2-`
+         #
+         if [ "$1" = "" ] ; then
+            $decho "Saving $tmpFile to $listFn"
+            #
+            # overwrite previous list files, remove temporary configurations
+            #
+            sort -u $tmpFile >  $PWL_PRJ/$listFn
+            rm -f $tmpFile
+         else
+            cmp -s $tmpFile $PWL_PRJ/$listFn
+            if [ "$?" != "0" ] ; then
+               return 1                   # files are different
+            else
+               rm -f $tmpFile
+            fi
+         fi
+      done
+   fi
+   $decho "end pwl_pkgconf_save"
+   return 0
+}
+
+
+#=============================================================================
+#
+#
+# menu_pwl_pkgconf ( packageDirectory, [defaultItem] )
+#
+function menu_pwl_pkgconf()
+{
+   $decho "start menu_pwl_pkgconf"
+   pwl_pkgconfDone=0
+   #
+   #  build list of package files to be configured (tar.lst)
+   #
+   build_pwl_pkgconf .tar.lst $1
+   #
+   pwl_pkgconfDone=0
+   #
+   while [ "$pwl_pkgconfDone" = "0" ]; do
+
+      show_pwl_pkgconf .tar.lst 2> .result
+
+      retVal=$?
+      read selection <.result
+      packageDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            pwl_pkgconfDone=1
+            packageDefault=$1        # set default to prev package
+            shift                    # allow recursion exit - remove prev pkg
+           ;;
+         2)
+           # get list file name incase context help is available
+           #
+           helpFn=`echo $selection | cut -f1 -d" " | sed s/\.tar/.README/g`
+           #
+           # scan this file for backup help
+           #
+           sed -n /^######/,/^######/p $0 | sed 's/^#*//g' > pwl_pkgconf.README
+           #
+           # include search string for default global help
+           #
+           show_help $helpFn pwl_pkgconf.README menu_pwl_pkgconf      # context help
+           #
+           # restore default, since help sends everything
+           #
+           packageDefault=`echo $selection | cut -f1 -d" "`
+
+           ;;
+         0|3|4|5|6)
+           case "$selection" in
+
+              "Unique")
+                 $PWL_CUSTOM
+                 ;;
+
+              "Total"|"Skip"|"skip")
+                 xx=1;
+                 ;;
+
+              "Include")
+                 project_package_default "$CFG_FILE_TMP" $1 Include
+                 ;;
+              "Exclude")
+                 project_package_default "$CFG_FILE_TMP" $1 Exclude
+                 ;;
+              *)
+                 if [ -d $selection ] ; then  #recurse into subdirectory
+                    menu_pwl_pkgconf $selection $*
+                    pwl_pkgconfDone=0                # - return and continue
+
+                 elif [ $retVal = "0" ] ; then
+                    menu_pkg_list $selection    # configure a package
+
+                 else
+                    selFn=`basename $selection .tar`
+                    selDir=`dirname $selection`
+                    # toggle selection from temp config file
+                    if grep -q "$selFn\.list" $CFG_FILE_TMP ; then
+                       grep -v "$selFn\.list" $CFG_FILE_TMP > .result
+                       cp .result $CFG_FILE_TMP
+                    #
+                    else
+                       echo $selDir/$selFn".list" >> $CFG_FILE_TMP
+                       build_files_verify $selDir/$selFn
+                    #
+                    fi
+               fi
+            esac
+            build_pwl_pkgconf .tar.lst $1
+           ;;
+        esac
+  done
+  $RM .tar.lst pwl_pkgconf.README
+  #
+  $decho "end menu_pwl_pkgconf"
+}
+
+
+#
+#  menu_pkg_list ( package_list_filename )
+#
+function menu_pkg_list()
+{
+   $decho "start menu_pkg_list"
+   #
+   #
+   pkgListFn=`basename $1 .tar`
+   pkgListDir=`dirname $1`
+   #
+   build_files_verify $1   #double check
+   #
+   packageDone=0
+   #
+   while [ "$packageDone" = "0" ]; do
+      #
+      #  build list of files from tar file, flag based on status file
+      #
+      build_pkg_list $1 .pack.lst
+      #
+      show_files "'Configure Files Menu'" .pack.lst 2>.result
+      retVal=$?
+      read selection <.result
+      filesDefault=$selection
+
+      case "$retVal" in
+         1|255)                      # exit
+            packageDone=1
+           ;;
+         2) show_help menu_pkg_list # help
+           # restore default, since help sends everything
+           filesDefault=`echo $selection | cut -f1 -d" "`
+           ;;
+         0|3|4|5|6)
+            #
+            # Check for 'command' operations or toggle file selected
+            #
+            if [ $selection = "Include" ] ; then
+               cp $pkgListDir/$pkgListFn".list" "$PWL_PRJ"/.$pkgListFn".list"
+
+            elif [ $selection = "Exclude" ] ; then
+               echo -n "" >  "$PWL_PRJ"/.$pkgListFn".list"
+
+            elif [ $selection = "Total" ] ; then
+               xx=1 # do nothing
+
+            else
+               # toggle selection
+               #
+               if grep -q $selection "$PWL_PRJ"/.$pkgListFn".list" ; then
+                  #
+                  #  selection found - remove it from the temporary list file
+                  #
+                  grep -v "$selection" "$PWL_PRJ"/.$pkgListFn".list" > .result
+                  cp .result "$PWL_PRJ"/.$pkgListFn".list"
+               else
+                  #  selection not found - get original name and add it to the list
+                  #
+                  grep $selection $pkgListDir/$pkgListFn".list" >> "$PWL_PRJ"/.$pkgListFn".list"
+               fi
+            fi
+            ;;
+         *)     # default
+            ;;
+      esac
+   done
+   #
+   # return clean
+   #
+   $RM .pack.lst
+   filesDefault=""
+   $decho "end menu_pkg_list"
+}
+
+
+
+#=============================================================================
+#
+# main - parse command line
+#
+function pwl_pkgconf_main()
+{
+   progInfo="`basename $0` - Version $PWL_PKGCONF_VER"
+   if [ "$backtitle" = "" ] ; then
+      backtitle=$progInfo
+   fi
+   pwl_pkgconf_init
+   #
+   # parse command line and execute commands or do interactive
+   #
+   gotOne=0
+   while [ "$1" != "" ] ; do
+      $decho "parse $*"
+      case "$1" in
+         "--help")                   #--help
+            usage
+            ;;
+         "--project")                #--project - assign current project
+            pwl_init_project $2
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+         "--save")
+            pwl_pkgconf_save $2
+            status="$?"
+            $decho "pwl_pkgconf returned $status"
+            exit $status           # exit on save command
+            ;;
+
+         "--init")                   #--init
+            pwl_pkgconf_init $2
+            gotOne=1
+            if [ "$2" != "" ] ; then
+               shift
+            fi
+            ;;
+
+         *) usage "Invalid command $*"
+            ;;
+      esac
+      shift
+   done
+   #
+   # do interactive operation
+   #
+   if [ $gotOne = "0" ] ; then
+      #
+      usrMode="I"      # enable interactive mode
+      menu_pwl_pkgconf $PKG_DIR
+   fi
+}
+
+# start here
+  debug_mode 0        # set to 1 to enable debug macros
+
+  $decho "START $0"
+
+  pwl_pkgconf_main $*
+
+  $decho "END $0"
+
+  exit 0
+#
+# end
+#
