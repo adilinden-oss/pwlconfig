@@ -7,7 +7,7 @@ PWL_MAJ_VER="0"           # major release number
 #
 PWL_MIN_VER="53"          # minor release number
 #
-PWL_REV_VER="9"           # revision level
+PWL_REV_VER="10"           # revision level
 #
 #  Current PeeWeeLinux Release
 #
@@ -32,6 +32,7 @@ History
 Mon Nov 06 2000 Adi Linden <adi@adis.on.ca>
 - absolute RPM variable paths broke extract_all function, fixed
 - fixed cd_install
+- updated minimal.tgz for new kernel build
 
 Wed Nov 01 2000 Adi Linden <adi@adis.on.ca>
 - added pwl_kernel for building custom kernels
