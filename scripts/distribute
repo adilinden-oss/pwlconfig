@@ -9,10 +9,7 @@
 # Now creates 3 tar archives containing sources, basic binaries and
 # supplementary binaries
 #
-###
-#
-###
-#
+# $Id$
 
 #
 # display usage information
@@ -28,8 +25,8 @@ function distribute_usage () {
     echo "           cfg    create archive of the"
     echo "                  pwlconfig utility"
     echo ""
-    echo "Make sure you run the clean script first"
-    echo "to get rid of build time stuff...."
+    echo "Make sure you run the \"./scripts/pwl_clean\""
+    echo "script first to get rid of build time stuff...."
     echo ""
     exit 0
 }
@@ -73,6 +70,7 @@ EOF
 # create source archive
 #
 do_src () {
+    echo "Creating \"$srcname\"...."
     tar czpf $srcname Embedded_Build
 }
 
@@ -80,6 +78,7 @@ do_src () {
 # create binary archive
 #
 do_bin () {
+    echo "Creating \"$binname\"...."
     tar czpf $binname \
         --exclude="Embedded_Build/src/SRPMS"   \
         Embedded_Build
@@ -89,18 +88,21 @@ do_bin () {
 # create pwlconfig archive
 #
 do_pwlconfig () {
+    echo "Creating \"$cfgname\"...."
     tar czpf $cfgname \
         --exclude="Embedded_Build/bin/src" \
         Embedded_Build/scripts                 \
         Embedded_Build/bin                     \
         Embedded_Build/examples                \
         Embedded_Build/pwlconfig               \
+	Embedded_Build/lxdialog                \
         Embedded_Build/CHANGELOG  
 }
 #
 # create the iso image
 #
 do_iso () {
+    echo "Creating \"$isoname\"...."
     mkisofs -r -J -o $isoname Embedded_Build
 }
 #

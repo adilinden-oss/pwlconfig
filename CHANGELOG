@@ -1,4 +1,9 @@
 
+v0.61.1 -- February 26, 2002
+----------------------------
+ o Added lxdialog sources and modified pwlconfig scripts to build
+   lxdialog from sources on first run.
+
 v0.61.0 -- March 4, 2001
 ------------------------
  o Changed kernel-basic to include bridging, multicast and tunneling

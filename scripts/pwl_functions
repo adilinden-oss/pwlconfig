@@ -1,3 +1,6 @@
+#!/bin/bash
+#
+# $Id$
 #
 #  History see CHANGES.pwlconfig
 #
@@ -107,12 +110,18 @@ PKG_INDEX=.index.list
 #
 # verify utility programs exists
 #
+if ! echo "$0" | grep -q "/distribute$"; then
    if [ ! -f "$DIALOG" ]; then
-      echo Utility program \"lxdialog\" not found
-      echo '( From (RH) /usr/src/linux type make Menuconfig'
-      echo '   then cp /usr/src/linux/scripts/lxdialog/lxdialog to ./bin)'
-      exit 1
+      if make -C "$baseprj/lxdialog"; then
+	  cp "$baseprj/lxdialog/lxdialog" "$DIALOG"
+      else
+          echo Utility program \"lxdialog\" not found
+          echo '( From (RH) /usr/src/linux type make Menuconfig'
+          echo '   then cp /usr/src/linux/scripts/lxdialog/lxdialog to ./bin)'
+          exit 1
+      fi
    fi
+fi
 # no longer needed I believe!   
 #   if [ ! -f "$DEV_MGR" ]; then
 #      echo Shell script $DEV_MGR not found

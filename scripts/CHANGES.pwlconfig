@@ -8,7 +8,7 @@ PWL_MAJ_VER="0"           # major release number
 PWL_MIN_VER="61"          # minor release number
 #
 PWL_REV_VER=""           # revision level
-PWL_REV_VER=".0"           # revision level
+PWL_REV_VER=".1"           # revision level
 #
 #  Current PeeWeeLinux Release
 #
@@ -24,11 +24,18 @@ Created by Ralph Stickley rstickley@datalux.com
 
 Built for Pee Wee Linux created by Adi Linden adi@adis.on.ca
 
+$Id$
+
 Many (ok, very many) Features copied from Menuconfig script
 Requires lxdialog from /usr/src/linux/scripts/lxdialog
 
 History
 -------
+Tue Feb 26 2002 Adi Linden <adi@adis.on.ca>
+- v0.61.1
+- distribute, pwl_functions, pwl_clean
+    added build of lxdialog from sources
+- added lxdialog directory with lxdialog sources
 
 Thu Jan 27 2001 Adi Linden <adi@adis.on.ca>
 - v0.60.1

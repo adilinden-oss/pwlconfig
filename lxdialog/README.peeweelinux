@@ -1,0 +1,6 @@
+$Id: README.peeweelinux,v 1.1 2002/02/27 04:44:39 adi Exp $
+
+This is lxdialog, copied from the 2.4.2 kernel source tree. There is
+lives at "scripts/lxdialog". The Makefile has been modified to work
+standalone.
+

@@ -6,6 +6,7 @@
 #
 # Cleans up the Embedded_Build tree
 #
+# $Id$
 
 if echo `pwd` | grep -q Embedded_Build$; then
 
@@ -17,6 +18,10 @@ if echo `pwd` | grep -q Embedded_Build$; then
 
     # remove any temporary files
     rm -rf tmp/*
+
+    # remove the lxdialog binary and clean the sources
+    rm  -f bin/lxdialog
+    make -C lxdialog clean
 
     # restore to original system files only, factory defaults
     if [ "$1" = "--save-projects" ] ; then
